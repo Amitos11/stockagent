@@ -16,7 +16,12 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import yfinance as yf
+try:
+    import yfinance as yf
+except ImportError:
+    import subprocess
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "yfinance", "-q"])
+    import yfinance as yf
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
