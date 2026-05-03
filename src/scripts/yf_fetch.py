@@ -19,11 +19,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 try:
     import yfinance as yf
 except ImportError:
-    import subprocess
+    import subprocess, os
+    _pkg_dir = os.path.join(os.path.dirname(__file__), "_pylibs")
+    os.makedirs(_pkg_dir, exist_ok=True)
     subprocess.check_call([
-        sys.executable, "-m", "pip", "install", "yfinance", "-q",
-        "--break-system-packages"
+        sys.executable, "-m", "pip", "install", "yfinance",
+        "--target", _pkg_dir, "-q"
     ])
+    sys.path.insert(0, _pkg_dir)
     import yfinance as yf
 
 
