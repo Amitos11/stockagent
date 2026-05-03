@@ -13,21 +13,16 @@ Usage:
 
 import json
 import sys
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-try:
-    import yfinance as yf
-except ImportError:
-    import subprocess, os
-    _pkg_dir = os.path.join(os.path.dirname(__file__), "_pylibs")
-    os.makedirs(_pkg_dir, exist_ok=True)
-    subprocess.check_call([
-        sys.executable, "-m", "pip", "install", "yfinance",
-        "--target", _pkg_dir, "-q"
-    ])
-    sys.path.insert(0, _pkg_dir)
-    import yfinance as yf
+# Add local _pylibs dir to path (installed at build time on Render)
+_pylibs = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_pylibs")
+if os.path.isdir(_pylibs):
+    sys.path.insert(0, _pylibs)
+
+import yfinance as yf
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
