@@ -13,11 +13,12 @@ import type {
 // ── subprocess helper ──────────────────────────────────────────────────────────
 
 const SCRIPT = join(process.cwd(), "src", "scripts", "yf_fetch.py");
+const PYTHON = process.platform === "win32" ? "python" : "python3";
 
 function runPython(cmd: string, arg: string, timeoutMs = 30_000): Promise<unknown> {
   return new Promise((resolve, reject) => {
     execFile(
-      "python",
+      PYTHON,
       [SCRIPT, cmd, arg],
       { timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 },
       (err, stdout, stderr) => {
