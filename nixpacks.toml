@@ -3,12 +3,12 @@ nixPkgs = ["nodejs_20", "python311", "python311Packages.pip"]
 
 [phases.install]
 cmds = [
-  "npm ci",
-  "pip install yfinance"
+  "pip install -r requirements.txt",
+  "npm ci"
 ]
 
 [phases.build]
 cmds = ["npm run build"]
 
 [start]
-cmd = "npm start"
+cmd = "npm start -- -p $PORT"
