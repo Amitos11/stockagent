@@ -20,7 +20,10 @@ try:
     import yfinance as yf
 except ImportError:
     import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "yfinance", "-q"])
+    subprocess.check_call([
+        sys.executable, "-m", "pip", "install", "yfinance", "-q",
+        "--break-system-packages"
+    ])
     import yfinance as yf
 
 
