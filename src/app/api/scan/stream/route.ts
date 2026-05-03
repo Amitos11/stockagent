@@ -93,11 +93,23 @@ export async function GET(req: NextRequest) {
     start(controller) {
       const enc = new TextEncoder();
       const allRows: StockRow[] = [];
+      let closed = false;
+
+      const safeEnqueue = (data: Uint8Array) => {
+        if (closed) return;
+        try { controller.enqueue(data); } catch { closed = true; }
+      };
+
+      const safeClose = () => {
+        if (closed) return;
+        closed = true;
+        try { controller.close(); } catch { /* already closed */ }
+      };
 
       // Send initial progress event
-      controller.enqueue(enc.encode(sseEvent("start", { total: allSymbols.length })));
+      safeEnqueue(enc.encode(sseEvent("start", { total: allSymbols.length })));
 
-      const py = spawn("python", [SCRIPT, "stream", allSymbols.join(",")], {
+      const py = spawn("python3", [SCRIPT, "stream", allSymbols.join(",")], {
         timeout: 300_000,
       });
 
@@ -106,7 +118,7 @@ export async function GET(req: NextRequest) {
       py.stdout.on("data", (chunk: Buffer) => {
         buf += chunk.toString();
         const lines = buf.split("\n");
-        buf = lines.pop() ?? ""; // keep incomplete last line
+        buf = lines.pop() ?? "";
 
         for (const line of lines) {
           const trimmed = line.trim();
@@ -115,14 +127,13 @@ export async function GET(req: NextRequest) {
             const row = JSON.parse(trimmed) as StockRow;
             allRows.push(row);
 
-            // Score this row immediately so the client can display partial data
             let enriched = row;
             if (hasMinData(row)) {
               const s = applyScores(row, weights);
               enriched = { ...s, insight: generateInsight(s), isValuePlay: isValuePlay(s) };
             }
 
-            controller.enqueue(enc.encode(sseEvent("stock", { row: enriched, received: allRows.length, total: allSymbols.length })));
+            safeEnqueue(enc.encode(sseEvent("stock", { row: enriched, received: allRows.length, total: allSymbols.length })));
           } catch {
             // non-JSON line — skip
           }
@@ -130,30 +141,24 @@ export async function GET(req: NextRequest) {
       });
 
       py.stderr.on("data", (d: Buffer) => {
-        // stderr is informational; don't crash on it
         console.error("[yf_fetch stream]", d.toString().slice(0, 200));
       });
 
       py.on("close", () => {
-        // Build final ranked result
         const result = buildResult(allRows, weights);
-
-        // Cache it
         cache.set(key, { result, expiresAt: Date.now() + CACHE_TTL_MS });
-
-        controller.enqueue(enc.encode(sseEvent("complete", result)));
-        controller.close();
+        safeEnqueue(enc.encode(sseEvent("complete", result)));
+        safeClose();
       });
 
       py.on("error", (err) => {
-        controller.enqueue(enc.encode(sseEvent("error", { message: err.message })));
-        controller.close();
+        safeEnqueue(enc.encode(sseEvent("error", { message: err.message })));
+        safeClose();
       });
 
-      // Abort if client disconnects
       req.signal.addEventListener("abort", () => {
         py.kill();
-        controller.close();
+        safeClose();
       });
     },
   });
