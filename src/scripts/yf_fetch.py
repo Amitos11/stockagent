@@ -168,11 +168,11 @@ def fetch_batch(symbols: list) -> list:
 # Prints each completed stock as a single JSON line to stdout immediately.
 # The Node.js SSE route reads these lines and forwards them to the browser.
 
-def stream_parallel(symbols: list, max_workers: int = 4) -> None:
+def stream_parallel(symbols: list, max_workers: int = 6) -> None:
     def fetch_with_delay(sym: str, idx: int) -> dict:
         # Stagger first batch only to avoid simultaneous crumb requests
         if idx < max_workers:
-            time.sleep(idx * 0.2)
+            time.sleep(idx * 0.15)
         return fetch_stock(sym)
 
     failed = []
