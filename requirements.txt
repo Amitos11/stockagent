@@ -1,3 +1,2 @@
-yfinance
-curl_cffi
+yfinance==0.2.54
 requests
