@@ -24,7 +24,12 @@ if os.path.isdir(_pylibs):
 
 import yfinance as yf
 
-# yfinance 1.3+ manages its own curl_cffi session internally — no custom session needed.
+# Shared curl_cffi session — one crumb for all parallel threads (yfinance 1.3+)
+try:
+    from curl_cffi import requests as cffi_requests
+    _session = cffi_requests.Session(impersonate="chrome")
+except Exception:
+    _session = None  # fallback: let yfinance manage its own session
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -57,7 +62,7 @@ def fetch_stock(symbol: str, max_retries: int = 2) -> dict:
 
     for attempt in range(max_retries):
         try:
-            ticker = yf.Ticker(symbol)
+            ticker = yf.Ticker(symbol, session=_session) if _session else yf.Ticker(symbol)
             info = ticker.info or {}
             if info:
                 break
