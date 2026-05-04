@@ -170,17 +170,23 @@ def fetch_batch(symbols: list) -> list:
 # The Node.js SSE route reads these lines and forwards them to the browser.
 
 def stream_parallel(symbols: list, max_workers: int = 4) -> None:
-    def fetch_with_delay(sym: str, idx: int) -> dict:
-        # Stagger first batch only to avoid simultaneous crumb requests
-        if idx < max_workers:
-            time.sleep(idx * 0.2)
-        return fetch_stock(sym)
+    if not symbols:
+        return
+
+    # ── Crumb warm-up ──────────────────────────────────────────────────────────
+    # Fetch the first stock sequentially so yfinance establishes its crumb.
+    # All subsequent threads reuse the same cached crumb (module-level in yfinance).
+    warmup_sym = symbols[0]
+    rest = symbols[1:]
+    warmup = fetch_stock(warmup_sym)
+    print(json.dumps(warmup), flush=True)
+    time.sleep(0.3)  # let crumb settle
 
     failed = []
 
-    # First pass — parallel
+    # ── Parallel pass (remaining symbols) ─────────────────────────────────────
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(fetch_with_delay, sym, idx): sym for idx, sym in enumerate(symbols)}
+        futures = {executor.submit(fetch_stock, sym): sym for sym in rest}
         for future in as_completed(futures):
             sym = futures[future]
             try:
@@ -188,18 +194,17 @@ def stream_parallel(symbols: list, max_workers: int = 4) -> None:
             except Exception as e:
                 row = {"symbol": sym, "error": str(e)[:80]}
 
-            # If rate-limited or crumb error — queue for retry
             err = row.get("error", "")
-            if "401" in err or "crumb" in err.lower() or "rate" in err.lower():
+            if "401" in err or "crumb" in err.lower() or "rate" in err.lower() or "too many" in err.lower():
                 failed.append(sym)
             else:
                 print(json.dumps(row), flush=True)
 
-    # Second pass — retry failed symbols after short pause
+    # ── Retry pass ─────────────────────────────────────────────────────────────
     if failed:
-        time.sleep(2)
+        time.sleep(3)
         for sym in failed:
-            time.sleep(0.4)
+            time.sleep(0.5)
             row = fetch_stock(sym)
             print(json.dumps(row), flush=True)
 
