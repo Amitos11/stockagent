@@ -347,15 +347,22 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Ranks 11+ in compact table */}
-                {results.valid.length > 10 && (
-                  <RankedTable
-                    rows={results.valid.slice(10)}
-                    onSelect={handleSelectStock}
-                    title={`Ranks 11–${results.valid.length} — All Other Stocks`}
-                    compact
-                  />
-                )}
+                {/* Ranks 11+ in compact table — cap reds (score<40) to top 5 */}
+                {results.valid.length > 10 && (() => {
+                  const rest = results.valid.slice(10);
+                  const nonRed = rest.filter((r) => (r.score ?? 0) >= 40);
+                  const reds   = rest.filter((r) => (r.score ?? 0) <  40).slice(0, 5);
+                  const shown  = [...nonRed, ...reds];
+                  const hidden = rest.length - shown.length;
+                  return (
+                    <RankedTable
+                      rows={shown}
+                      onSelect={handleSelectStock}
+                      title={`Ranks 11–${10 + shown.length} — All Other Stocks${hidden > 0 ? ` (${hidden} weak hidden)` : ""}`}
+                      compact
+                    />
+                  );
+                })()}
               </div>
             )}
 

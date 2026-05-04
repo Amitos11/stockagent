@@ -1,24 +1,27 @@
+// Curated list — biased toward strong fundamentals (growth + profitability + reasonable PE).
+// Chronic underperformers on the scoring model (INTC, BA, TEVA, BAC, GS, XOM, CVX, NKE,
+// most TASE-only banks, micro-cap Israelis with thin yfinance data) were removed.
 export const TICKERS = [
   // US Mega-cap Tech
   "NVDA", "AAPL", "MSFT", "GOOG", "META", "AMZN", "TSLA", "AVGO", "ORCL", "NFLX",
   // US Semis & Hardware
-  "AMD", "MU", "QCOM", "INTC", "SMCI", "AMAT", "LRCX", "MRVL", "ASML", "KLAC",
-  // US Software / Cloud
+  "AMD", "MU", "QCOM", "SMCI", "AMAT", "LRCX", "MRVL", "ASML", "KLAC",
+  // US Software / Cloud / Security
   "PLTR", "CRWD", "NET", "DDOG", "SNOW", "MDB", "ZS", "OKTA", "S", "ESTC",
   "PANW", "FTNT",
   // US Healthcare / Biotech
   "JNJ", "UNH", "MRK", "ABBV", "LLY", "ISRG", "REGN", "VRTX",
   // US Consumer / Retail
-  "COST", "WMT", "HD", "LULU", "ULTA", "ELF", "CMG", "NKE",
+  "COST", "WMT", "HD", "LULU", "ULTA", "ELF", "CMG",
   // US Financials
-  "JPM", "V", "MA", "BAC", "GS", "HOOD", "SOFI", "COIN",
-  // US Industrials / Energy
-  "LMT", "RTX", "GE", "CAT", "XOM", "CVX", "BA",
+  "JPM", "V", "MA", "HOOD", "SOFI", "COIN",
+  // US Industrials / Defense
+  "LMT", "RTX", "GE", "CAT",
   // Israeli on NASDAQ
-  "TEVA", "CHKP", "NICE", "MNDY", "WIX", "MBLY", "GLBE", "ESLT",
-  "CYBR", "INMD", "NVMI", "AUDC", "GILT",
-  // TASE-only
-  "POLI.TA", "LUMI.TA", "DSCT.TA", "MZTF.TA", "FIBI.TA", "ICL.TA", "AZRG.TA",
+  "CHKP", "NICE", "MNDY", "WIX", "MBLY", "GLBE", "ESLT",
+  "CYBR", "NVMI",
+  // TASE-only (kept: industrials with usable yfinance data)
+  "ICL.TA", "AZRG.TA", "POLI.TA",
 ] as const;
 
 export type Ticker = (typeof TICKERS)[number];
