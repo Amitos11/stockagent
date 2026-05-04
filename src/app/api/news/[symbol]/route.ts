@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getFinnhubNews } from "@/lib/finnhub";
 
 const POSITIVE = new Set(["surge","jump","rally","beat","gain","profit","growth","strong","record","rise","soar","upgrade"]);
 const NEGATIVE = new Set(["crash","drop","fall","miss","loss","decline","weak","slump","downgrade","layoff","cut","warning"]);
@@ -16,26 +15,12 @@ export async function GET(
   { params }: { params: Promise<{ symbol: string }> }
 ) {
   const { symbol } = await params;
-  const ticker = symbol.replace(/\.[A-Z]+$/, ""); // strip .TA etc
-
-  // ── Try Finnhub first ──────────────────────────────────────────────────────
-  const fhNews = await getFinnhubNews(ticker, 7);
-  if (fhNews.length > 0) {
-    const articles = fhNews.slice(0, 3).map((n) => ({
-      title:     n.headline,
-      url:       n.url,
-      source:    n.source,
-      published: new Date(n.datetime * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      sentiment: sentiment(n.headline),
-    }));
-    return NextResponse.json({ articles });
-  }
-
-  // ── Fallback: NewsAPI ──────────────────────────────────────────────────────
   const apiKey = process.env.NEWS_API_KEY;
   if (!apiKey) return NextResponse.json({ articles: [] });
 
   const companyName = req.nextUrl.searchParams.get("name") ?? "";
+  const ticker = symbol.replace(/\.[A-Z]+$/, "");
+
   const q = companyName
     ? `"${companyName}" AND (stock OR earnings OR shares OR investor OR market)`
     : `"${ticker}" AND (stock OR earnings OR shares OR investor OR market)`;
