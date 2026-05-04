@@ -34,9 +34,22 @@ except Exception:
 def _make_session():
     if _CffiSession is None:
         return None
-    return _CffiSession(impersonate="chrome")
+    # Try various impersonation targets in order of preference
+    for target in ("chrome", "chrome110", "safari"):
+        try:
+            return _CffiSession(impersonate=target)
+        except Exception:
+            continue
+    try:
+        return _CffiSession()  # no impersonation
+    except Exception:
+        return None
 
 _session = _make_session()
+# Log session status to stderr so we can see it in Render logs
+import sys as _sys
+_sys.stderr.write(f"[yf_fetch] session={'curl_cffi' if _session else 'none (fallback)'}\n")
+_sys.stderr.flush()
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
