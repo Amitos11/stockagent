@@ -207,7 +207,7 @@ def stream_parallel(symbols: list, max_workers: int = 4) -> None:
 
 def fetch_candles(symbol: str) -> list:
     try:
-        ticker = yf.Ticker(symbol)
+        ticker = yf.Ticker(symbol, session=_session) if _session else yf.Ticker(symbol)
         hist = ticker.history(period="1mo")
         if hist.empty:
             return []
@@ -231,7 +231,7 @@ def fetch_news(symbol: str) -> list:
     POSITIVE = {"surge","jump","rally","beat","gain","profit","growth","strong"}
     NEGATIVE = {"crash","drop","fall","miss","loss","decline","weak","slump"}
     try:
-        ticker = yf.Ticker(symbol)
+        ticker = yf.Ticker(symbol, session=_session) if _session else yf.Ticker(symbol)
         news = ticker.news or []
         result = []
         for item in news[:3]:
@@ -265,7 +265,7 @@ def fetch_news(symbol: str) -> list:
 def fetch_enrich(symbol: str) -> dict:
     out = {}
     try:
-        ticker = yf.Ticker(symbol)
+        ticker = yf.Ticker(symbol, session=_session) if _session else yf.Ticker(symbol)
 
         # Management
         info = ticker.info or {}
