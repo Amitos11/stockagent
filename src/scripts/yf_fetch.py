@@ -58,7 +58,6 @@ def fmt_mc(mc, symbol):
 # ── single stock ───────────────────────────────────────────────────────────────
 
 def fetch_stock(symbol: str, max_retries: int = 3) -> dict:
-    global _session
     row = {"symbol": symbol}
     info = None
     last_err = None
