@@ -27,6 +27,14 @@ export function fmtBigMoney(value?: number | null, currency = "USD"): string {
   return `${sign}${sym}${abs.toLocaleString()}`;
 }
 
+export function fmt_mc(mc: number, symbol: string): string {
+  const sym = symbol.includes(".TA") ? "₪" : "$";
+  if (mc >= 1e12) return `${sym}${(mc / 1e12).toFixed(1)}T`;
+  if (mc >= 1e9)  return `${sym}${(mc / 1e9).toFixed(1)}B`;
+  if (mc >= 1e6)  return `${sym}${(mc / 1e6).toFixed(1)}M`;
+  return `${sym}${mc.toFixed(0)}`;
+}
+
 export function fmtMarketCap(mc?: number | null, symbol = ""): string {
   if (!mc) return "—";
   const sym = symbol.includes(".TA") ? "₪" : "$";

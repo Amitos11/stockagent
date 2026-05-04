@@ -105,6 +105,30 @@ export async function getFinnhubCandles(symbol: string, days = 35): Promise<Finn
   }));
 }
 
+// ── Basic Metrics (fundamentals for scan) ─────────────────────────────────────
+
+export interface FinnhubMetrics {
+  peTTM?:                       number;
+  peAnnual?:                    number;
+  epsGrowthTTMYoy?:             number; // % (divide by 100 for decimal)
+  revenueGrowthTTMYoy?:         number; // %
+  operatingMarginTTM?:          number; // %
+  netMarginTTM?:                number; // %
+  roeTTM?:                      number; // %
+  "totalDebt/totalEquityAnnual"?: number;
+  currentRatioAnnual?:          number;
+  marketCapitalization?:        number; // millions
+  "52WeekHigh"?:                number;
+  "52WeekLow"?:                 number;
+}
+
+export async function getFinnhubMetrics(symbol: string): Promise<FinnhubMetrics | null> {
+  const data = await fhGet<{ metric: FinnhubMetrics }>(
+    "/stock/metric", { symbol, metric: "all" }
+  );
+  return data?.metric ?? null;
+}
+
 // ── Analyst recommendations ───────────────────────────────────────────────────
 
 export interface FinnhubRec {
