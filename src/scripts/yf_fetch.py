@@ -60,36 +60,37 @@ def fmt_mc(mc, symbol):
     return f"{sym}{mc:.0f}"
 
 
-# ── Yahoo Finance v7/finance/quote  (NO crumb required) ───────────────────────
-# This endpoint accepts up to ~50 symbols in one request and returns price +
-# valuation data.  It is far less rate-limited than quoteSummary on shared IPs.
+# ── Yahoo Finance v7/finance/quote  (no crumb required) ───────────────────────
+# Accepts ~50 symbols per request.  Much more reliable than quoteSummary on
+# shared IPs because it does not need a per-session Yahoo crumb token.
 
-_QUOTE_FIELDS = ",".join([
-    "symbol","shortName","longName","currency","sector","industry",
-    "regularMarketPrice","regularMarketPreviousClose","regularMarketChangePercent",
-    "marketCap","trailingPE","forwardPE","pegRatio","priceToBook",
-    "earningsGrowth","revenueGrowth",
-    "operatingMargins","profitMargins","returnOnEquity",
-    "debtToEquity","currentRatio",
-    "totalRevenue","grossProfits","ebitda","netIncomeToCommon",
-    "fiftyTwoWeekHigh","fiftyTwoWeekLow",
-    "targetMeanPrice","targetHighPrice","targetLowPrice",
-    "numberOfAnalystOpinions","recommendationKey","recommendationMean",
-    "earningsTimestampStart","earningsTimestamp",
-    "financialCurrency",
-])
+_cookies_warmed = False
+
+def _warm_cookies():
+    """Hit finance.yahoo.com once so the session picks up the required cookies."""
+    global _cookies_warmed
+    if _cookies_warmed:
+        return
+    try:
+        _session.get("https://finance.yahoo.com", timeout=12)
+        _cookies_warmed = True
+    except Exception:
+        pass
+
 
 def _bulk_quotes(symbols: list) -> dict:
     """
-    Fetch up to 50 symbols per call via v7/finance/quote (no crumb needed).
+    Fetch up to 48 symbols per call via v7/finance/quote.
     Returns {SYMBOL: raw_quote_dict, ...}.
     """
+    _warm_cookies()
     out = {}
     chunk_size = 48
     for i in range(0, len(symbols), chunk_size):
         chunk = symbols[i:i + chunk_size]
-        params = {"symbols": ",".join(chunk), "fields": _QUOTE_FIELDS}
-        # Try query1 then query2
+        # No 'fields' param — let Yahoo return its full default set
+        params = {"symbols": ",".join(chunk)}
+        fetched = False
         for base in ("https://query1.finance.yahoo.com",
                      "https://query2.finance.yahoo.com"):
             try:
@@ -98,14 +99,20 @@ def _bulk_quotes(symbols: list) -> dict:
                     params=params,
                     timeout=20,
                 )
+                print(f"[bulk_quotes] {base} status={r.status_code} symbols={len(chunk)}", file=sys.stderr, flush=True)
                 if r.status_code == 200:
-                    for q in (r.json().get("quoteResponse") or {}).get("result") or []:
+                    results = (r.json().get("quoteResponse") or {}).get("result") or []
+                    print(f"[bulk_quotes] got {len(results)} results", file=sys.stderr, flush=True)
+                    for q in results:
                         sym = q.get("symbol", "")
                         if sym:
                             out[sym] = q
-                    break   # success — no need to try query2
-            except Exception:
-                pass
+                    fetched = True
+                    break
+            except Exception as e:
+                print(f"[bulk_quotes] exception: {e}", file=sys.stderr, flush=True)
+        if not fetched:
+            print(f"[bulk_quotes] both endpoints failed for chunk {i}-{i+chunk_size}", file=sys.stderr, flush=True)
         if i + chunk_size < len(symbols):
             time.sleep(0.5)
     return out

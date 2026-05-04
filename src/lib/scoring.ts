@@ -27,15 +27,10 @@ export function scoreValuation(row: StockRow, weight: number): number {
   return norm * weight;
 }
 
-/** Enough data to score (needs at least price + one growth metric or PE) */
+/** Enough data to display — just needs a valid price */
 export function hasMinData(row: StockRow): boolean {
   if (row.error) return false;
-  if (row.price == null) return false;
-  // Need at least PE or some growth metric to produce a meaningful score
-  const hasValuation = row.peRatio != null && row.peRatio > 0;
-  const hasGrowth = row.earningsGrowth != null || row.revenueGrowth != null;
-  const hasProfitability = row.operatingMargin != null || row.roe != null;
-  return hasValuation || hasGrowth || hasProfitability;
+  return row.price != null && row.price > 0;
 }
 
 export function applyScores(row: StockRow, weights: ScanWeights): StockRow {
