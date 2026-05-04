@@ -23,7 +23,15 @@ if os.path.isdir(_pylibs):
 import warnings
 warnings.filterwarnings("ignore")
 
+import requests
 import yfinance as yf
+
+# Shared session — all threads reuse the same Yahoo crumb → fewer 401s → faster
+_session = requests.Session()
+_session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "en-US,en;q=0.5",
+})
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -54,7 +62,7 @@ def fetch_stock(symbol: str, max_retries: int = 3) -> dict:
     for attempt in range(max_retries):
         try:
             # NOTE: no session= — let yfinance use its built-in curl_cffi browser
-            ticker = yf.Ticker(symbol)
+            ticker = yf.Ticker(symbol, session=_session)
             info   = ticker.info or {}
             if info:
                 break
@@ -190,7 +198,7 @@ def stream_parallel(symbols: list, max_workers: int = 4) -> None:
 
 def fetch_candles(symbol: str) -> list:
     try:
-        hist = yf.Ticker(symbol).history(period="1mo")
+        hist = yf.Ticker(symbol, session=_session).history(period="1mo")
         if hist.empty:
             return []
         return [
@@ -213,7 +221,7 @@ def fetch_news(symbol: str) -> list:
     POS = {"surge","jump","rally","beat","gain","profit","growth","strong"}
     NEG = {"crash","drop","fall","miss","loss","decline","weak","slump"}
     try:
-        news   = yf.Ticker(symbol).news or []
+        news   = yf.Ticker(symbol, session=_session).news or []
         result = []
         for item in news[:3]:
             c     = item.get("content", item)
@@ -235,7 +243,7 @@ def fetch_news(symbol: str) -> list:
 def fetch_enrich(symbol: str) -> dict:
     out = {}
     try:
-        ticker   = yf.Ticker(symbol)
+        ticker   = yf.Ticker(symbol, session=_session)
         info     = ticker.info or {}
         officers = info.get("companyOfficers") or []
         ceo = cfo = None
