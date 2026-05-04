@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchStock, fetchFullEnrich } from "@/lib/fetcher";
 import { applyScores, generateInsight, isValuePlay } from "@/lib/scoring";
 import { getStock, putStock } from "@/lib/stockCache";
-import type { ScanWeights } from "@/lib/types";
+import { getFinnhubQuote, getFinnhubProfile } from "@/lib/finnhub";
+import type { ScanWeights, StockRow } from "@/lib/types";
 
 export async function GET(
   req: NextRequest,
@@ -27,6 +28,28 @@ export async function GET(
     fetchStock(sym),
     fetchFullEnrich(sym),
   ]);
+
+  // Fallback: if yfinance rate-limited, try Finnhub for basic price data
+  if (row.error && (row.error.includes("Rate") || row.error.includes("429") || row.error.includes("Too Many"))) {
+    const [quote, profile] = await Promise.all([getFinnhubQuote(sym), getFinnhubProfile(sym)]);
+    if (quote && quote.c > 0) {
+      const fallback: StockRow = {
+        symbol: sym,
+        name: profile?.name ?? sym,
+        price: quote.c,
+        currency: profile?.currency ?? "USD",
+        sector: profile?.finnhubIndustry ?? "",
+        marketCap: (profile?.marketCapitalization ?? 0) * 1_000_000,
+        marketCapDisplay: profile?.marketCapitalization
+          ? `$${(profile.marketCapitalization / 1000).toFixed(1)}B` : "",
+        dayChange: quote.dp,
+        fiftyTwoWeekHigh: quote.h,
+        fiftyTwoWeekLow: quote.l,
+      };
+      return NextResponse.json(fallback);
+    }
+    return NextResponse.json(row);
+  }
 
   if (row.error) return NextResponse.json(row);
 
