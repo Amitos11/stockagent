@@ -163,19 +163,36 @@ def fetch_batch(symbols: list) -> list:
 
 def stream_parallel(symbols: list, max_workers: int = 4) -> None:
     def fetch_with_delay(sym: str, idx: int) -> dict:
-        # Only stagger the first batch to avoid simultaneous crumb requests
+        # Stagger first batch only to avoid simultaneous crumb requests
         if idx < max_workers:
             time.sleep(idx * 0.2)
         return fetch_stock(sym)
 
+    failed = []
+
+    # First pass — parallel
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(fetch_with_delay, sym, idx): sym for idx, sym in enumerate(symbols)}
         for future in as_completed(futures):
+            sym = futures[future]
             try:
                 row = future.result()
             except Exception as e:
-                sym = futures[future]
                 row = {"symbol": sym, "error": str(e)[:80]}
+
+            # If rate-limited or crumb error — queue for retry
+            err = row.get("error", "")
+            if "401" in err or "crumb" in err.lower() or "rate" in err.lower():
+                failed.append(sym)
+            else:
+                print(json.dumps(row), flush=True)
+
+    # Second pass — retry failed symbols sequentially with delay
+    if failed:
+        time.sleep(3)
+        for sym in failed:
+            time.sleep(0.5)
+            row = fetch_stock(sym)
             print(json.dumps(row), flush=True)
 
 
