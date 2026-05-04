@@ -22,12 +22,16 @@ _pylibs = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_pylibs")
 if os.path.isdir(_pylibs):
     sys.path.insert(0, _pylibs)
 
+import requests
 import yfinance as yf
 
-# Shared curl_cffi session — one crumb for all parallel threads (yfinance 1.3+)
-# yfinance 1.3+ manages its own curl_cffi session and crumb internally.
-# Passing an external session causes crumb mismatches — let yfinance handle it.
-_session = None
+# Shared session — one crumb for all parallel threads (yfinance 0.2.x)
+_session = requests.Session()
+_session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+})
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -61,7 +65,7 @@ def fetch_stock(symbol: str, max_retries: int = 3) -> dict:
 
     for attempt in range(max_retries):
         try:
-            ticker = yf.Ticker(symbol)
+            ticker = yf.Ticker(symbol, session=_session)
             info = ticker.info or {}
             if info:
                 break
@@ -213,7 +217,7 @@ def stream_parallel(symbols: list, max_workers: int = 4) -> None:
 
 def fetch_candles(symbol: str) -> list:
     try:
-        ticker = yf.Ticker(symbol)
+        ticker = yf.Ticker(symbol, session=_session)
         hist = ticker.history(period="1mo")
         if hist.empty:
             return []
@@ -237,7 +241,7 @@ def fetch_news(symbol: str) -> list:
     POSITIVE = {"surge","jump","rally","beat","gain","profit","growth","strong"}
     NEGATIVE = {"crash","drop","fall","miss","loss","decline","weak","slump"}
     try:
-        ticker = yf.Ticker(symbol)
+        ticker = yf.Ticker(symbol, session=_session)
         news = ticker.news or []
         result = []
         for item in news[:3]:
@@ -271,7 +275,7 @@ def fetch_news(symbol: str) -> list:
 def fetch_enrich(symbol: str) -> dict:
     out = {}
     try:
-        ticker = yf.Ticker(symbol)
+        ticker = yf.Ticker(symbol, session=_session)
 
         # Management
         info = ticker.info or {}
