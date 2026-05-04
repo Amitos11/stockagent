@@ -58,7 +58,6 @@ input[type="range"] {
   appearance: none;
   height: 6px;
   border-radius: 9999px;
-  background: #e2e8f0;
   outline: none;
 }
 input[type="range"]::-webkit-slider-thumb {
