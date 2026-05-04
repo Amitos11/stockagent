@@ -211,9 +211,9 @@ export default function DashboardPage() {
                 Scoring Weights
               </h2>
               <div className="grid grid-cols-3 gap-4">
-                <WeightSlider label="Growth"        value={wGrowth} onChange={setWGrowth} color="text-blue-600"   trackColor="bg-blue-400" />
-                <WeightSlider label="Profitability" value={wProfit} onChange={setWProfit} color="text-violet-600" trackColor="bg-violet-400" />
-                <WeightSlider label="Valuation"     value={wValue}  onChange={setWValue}  color="text-amber-600"  trackColor="bg-amber-400" />
+                <WeightSlider label="Growth"        value={wGrowth} onChange={setWGrowth} color="text-blue-600"   trackColor="#60a5fa" />
+                <WeightSlider label="Profitability" value={wProfit} onChange={setWProfit} color="text-violet-600" trackColor="#a78bfa" />
+                <WeightSlider label="Valuation"     value={wValue}  onChange={setWValue}  color="text-amber-600"  trackColor="#fbbf24" />
               </div>
             </div>
             <div className="flex items-center gap-3 pt-1">
@@ -582,16 +582,14 @@ function WeightSlider({
         <span className="text-xs font-medium text-slate-500">{label}</span>
         <span className={`text-xs font-bold tabular-nums ${color}`}>{value}%</span>
       </div>
-      <div className="relative h-2 bg-slate-100 rounded-full mb-2">
-        <div className={`h-full ${trackColor} rounded-full transition-all`} style={{ width: `${value}%` }} />
-      </div>
       <input
         type="range" min={0} max={100} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full cursor-pointer opacity-0 h-2 mt-[-10px] relative mb-1"
+        className="w-full cursor-pointer mb-2"
+        style={{ accentColor: trackColor }}
         aria-label={`${label} weight`}
       />
-      <div className="flex items-center justify-between gap-1 mt-1">
+      <div className="flex items-center justify-between gap-1">
         <button
           onClick={() => step(-5)}
           className="w-6 h-6 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-bold flex items-center justify-center transition-colors cursor-pointer select-none"
