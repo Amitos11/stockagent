@@ -30,7 +30,8 @@ export function CandlestickChart({ symbol, data }: CandlestickChartProps) {
         width,
         height: 360,
         layout: {
-          background: { type: "solid" as const, color: "#ffffff" },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          background: { type: "solid" as any, color: "#ffffff" },
           textColor: "#64748b",
           fontFamily: "'Inter', -apple-system, sans-serif",
           fontSize: 12,
