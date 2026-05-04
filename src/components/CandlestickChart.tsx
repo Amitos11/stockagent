@@ -17,19 +17,20 @@ export function CandlestickChart({ symbol, data }: CandlestickChartProps) {
     if (!containerRef.current || !data.length) return;
 
     let chart: AnyChart = null;
+    let ro: ResizeObserver | null = null;
 
     (async () => {
       const lw = await import("lightweight-charts");
 
-      // Guard: element may have unmounted during the async import
       if (!containerRef.current) return;
       const el = containerRef.current;
+      const width = el.clientWidth || el.getBoundingClientRect().width || 600;
 
       chart = lw.createChart(el, {
-        width: el.clientWidth,
+        width,
         height: 360,
         layout: {
-          background: { color: "#ffffff" },
+          background: { type: "solid" as const, color: "#ffffff" },
           textColor: "#64748b",
           fontFamily: "'Inter', -apple-system, sans-serif",
           fontSize: 12,
@@ -55,18 +56,18 @@ export function CandlestickChart({ symbol, data }: CandlestickChartProps) {
       });
 
       series.setData(data);
+      chart.timeScale().fitContent();
 
-      const handleResize = () => {
-        const width = containerRef.current?.clientWidth;
-        if (width && chart) {
-          chart.applyOptions({ width });
-        }
-      };
-      window.addEventListener("resize", handleResize);
-      return () => window.removeEventListener("resize", handleResize);
+      // Resize observer — keeps chart width in sync with container
+      ro = new ResizeObserver((entries) => {
+        const w = entries[0]?.contentRect.width;
+        if (w && chart) chart.applyOptions({ width: w });
+      });
+      ro.observe(el);
     })();
 
     return () => {
+      ro?.disconnect();
       chart?.remove();
     };
   }, [data]);
