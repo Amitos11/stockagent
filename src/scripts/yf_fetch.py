@@ -48,7 +48,7 @@ def fmt_mc(mc, symbol):
 
 # ── single stock ───────────────────────────────────────────────────────────────
 
-def fetch_stock(symbol: str, max_retries: int = 3) -> dict:
+def fetch_stock(symbol: str, max_retries: int = 2) -> dict:
     row = {"symbol": symbol}
     info = None
     last_err = None
@@ -63,7 +63,7 @@ def fetch_stock(symbol: str, max_retries: int = 3) -> dict:
             last_err = e
             err_str = str(e).lower()
             if "rate" in err_str or "too many" in err_str or "429" in err_str:
-                time.sleep(5 * (3 ** attempt))
+                time.sleep(2 * (attempt + 1))  # max 4 seconds, not 45
                 continue
             else:
                 row["error"] = f"fetch failed: {str(e)[:80]}"
@@ -134,18 +134,8 @@ def fetch_stock(symbol: str, max_retries: int = 3) -> dict:
     row["fiftyTwoWeekHigh"] = sf(info.get("fiftyTwoWeekHigh"))
     row["fiftyTwoWeekLow"]  = sf(info.get("fiftyTwoWeekLow"))
 
-    # Next earnings
+    # Next earnings — skip calendar call (extra HTTP request, too slow for batch scan)
     row["nextEarnings"] = ""
-    try:
-        cal = yf.Ticker(symbol).calendar
-        if isinstance(cal, dict):
-            ed = cal.get("Earnings Date")
-            if ed:
-                if isinstance(ed, list) and ed:
-                    ed = ed[0]
-                row["nextEarnings"] = ed.strftime("%Y-%m-%d") if hasattr(ed, "strftime") else str(ed)[:10]
-    except Exception:
-        pass
 
     return row
 
