@@ -99,6 +99,12 @@ export default function DashboardPage() {
     setSelectedStock(stock);
   }, []);
 
+  // If the stock was already scanned, open it directly from cache instead of re-fetching
+  const handleSearchResult = useCallback((stock: StockRow) => {
+    const cached = results?.allRows.find((r) => r.symbol === stock.symbol);
+    setSelectedStock(cached ?? stock);
+  }, [results]);
+
   const downloadCSV = useCallback(() => {
     if (!results) return;
     const headers = [
@@ -228,7 +234,8 @@ export default function DashboardPage() {
               </h2>
               <StockSearch
                 weights={{ growth: wGrowth, profitability: wProfit, valuation: wValue }}
-                onResult={handleSelectStock}
+                onResult={handleSearchResult}
+                cachedSymbols={results?.allRows.map((r) => r.symbol) ?? []}
               />
             </div>
           </div>

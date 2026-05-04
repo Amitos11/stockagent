@@ -7,9 +7,10 @@ import type { StockRow } from "@/lib/types";
 interface StockSearchProps {
   weights: { growth: number; profitability: number; valuation: number };
   onResult: (stock: StockRow) => void;
+  cachedSymbols?: string[];
 }
 
-export function StockSearch({ weights, onResult }: StockSearchProps) {
+export function StockSearch({ weights, onResult, cachedSymbols = [] }: StockSearchProps) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -18,6 +19,13 @@ export function StockSearch({ weights, onResult }: StockSearchProps) {
     e.preventDefault();
     const sym = input.trim().toUpperCase();
     if (!sym) return;
+
+    // If already in scan results — open directly without API call
+    if (cachedSymbols.includes(sym)) {
+      onResult({ symbol: sym } as StockRow);
+      setInput("");
+      return;
+    }
 
     setLoading(true);
     setError("");
