@@ -5,7 +5,7 @@ Outputs a single JSON object to stdout.
 Usage:
   python yf_fetch.py stock   <SYMBOL>
   python yf_fetch.py batch   <SYM1,SYM2,...>
-  python yf_fetch.py stream  <SYM1,SYM2,...>   ← parallel, one JSON line per stock
+  python yf_fetch.py stream  <SYM1,SYM2,...>   ← bulk quote API, one JSON line per stock
   python yf_fetch.py candles <SYMBOL>
   python yf_fetch.py news    <SYMBOL>
   python yf_fetch.py enrich  <SYMBOL>   (management + quarterly + forward + earnings)
@@ -15,7 +15,7 @@ import json
 import sys
 import os
 import time
-# ThreadPoolExecutor removed — stream is now sequential (avoids Yahoo 401 crumb errors)
+from datetime import datetime, timezone
 
 # Add local _pylibs dir to path (installed at build time on Render)
 _pylibs = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_pylibs")
@@ -23,14 +23,19 @@ if os.path.isdir(_pylibs):
     sys.path.insert(0, _pylibs)
 
 import requests
+import warnings
+warnings.filterwarnings("ignore")   # suppress Pandas4Warning noise
+
 import yfinance as yf
 
-# Shared session — one crumb for all parallel threads (yfinance 0.2.x)
+# ── shared HTTP session ────────────────────────────────────────────────────────
 _session = requests.Session()
 _session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://finance.yahoo.com/",
+    "Origin": "https://finance.yahoo.com",
 })
 
 
@@ -55,33 +60,157 @@ def fmt_mc(mc, symbol):
     return f"{sym}{mc:.0f}"
 
 
-# ── single stock ───────────────────────────────────────────────────────────────
+# ── Yahoo Finance v7/finance/quote  (NO crumb required) ───────────────────────
+# This endpoint accepts up to ~50 symbols in one request and returns price +
+# valuation data.  It is far less rate-limited than quoteSummary on shared IPs.
 
-def fetch_stock(symbol: str, max_retries: int = 3) -> dict:
+_QUOTE_FIELDS = ",".join([
+    "symbol","shortName","longName","currency","sector","industry",
+    "regularMarketPrice","regularMarketPreviousClose","regularMarketChangePercent",
+    "marketCap","trailingPE","forwardPE","pegRatio","priceToBook",
+    "earningsGrowth","revenueGrowth",
+    "operatingMargins","profitMargins","returnOnEquity",
+    "debtToEquity","currentRatio",
+    "totalRevenue","grossProfits","ebitda","netIncomeToCommon",
+    "fiftyTwoWeekHigh","fiftyTwoWeekLow",
+    "targetMeanPrice","targetHighPrice","targetLowPrice",
+    "numberOfAnalystOpinions","recommendationKey","recommendationMean",
+    "earningsTimestampStart","earningsTimestamp",
+    "financialCurrency",
+])
+
+def _bulk_quotes(symbols: list) -> dict:
+    """
+    Fetch up to 50 symbols per call via v7/finance/quote (no crumb needed).
+    Returns {SYMBOL: raw_quote_dict, ...}.
+    """
+    out = {}
+    chunk_size = 48
+    for i in range(0, len(symbols), chunk_size):
+        chunk = symbols[i:i + chunk_size]
+        params = {"symbols": ",".join(chunk), "fields": _QUOTE_FIELDS}
+        # Try query1 then query2
+        for base in ("https://query1.finance.yahoo.com",
+                     "https://query2.finance.yahoo.com"):
+            try:
+                r = _session.get(
+                    f"{base}/v7/finance/quote",
+                    params=params,
+                    timeout=20,
+                )
+                if r.status_code == 200:
+                    for q in (r.json().get("quoteResponse") or {}).get("result") or []:
+                        sym = q.get("symbol", "")
+                        if sym:
+                            out[sym] = q
+                    break   # success — no need to try query2
+            except Exception:
+                pass
+        if i + chunk_size < len(symbols):
+            time.sleep(0.5)
+    return out
+
+
+def _quote_to_row(q: dict) -> dict:
+    """Convert a v7/finance/quote dict to our standard StockRow format."""
+    symbol = q.get("symbol", "")
+    price  = sf(q.get("regularMarketPrice"))
+    if not price:
+        return {"symbol": symbol, "error": "no price data"}
+
+    prev = sf(q.get("regularMarketPreviousClose"))
+    mc   = sf(q.get("marketCap"))
+    om   = sf(q.get("operatingMargins"))
+    tr   = sf(q.get("totalRevenue"))
+
+    # day change: prefer computed from raw prices, else take the % field
+    if prev and prev > 0:
+        day_change = (price - prev) / prev * 100
+    else:
+        day_change = sf(q.get("regularMarketChangePercent"))
+
+    # next earnings
+    next_earn = ""
+    try:
+        ts = q.get("earningsTimestampStart") or q.get("earningsTimestamp")
+        if ts:
+            next_earn = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%d")
+    except Exception:
+        pass
+
+    return {
+        "symbol":   symbol,
+        "name":     q.get("shortName") or q.get("longName") or "",
+        "price":    price,
+        "currency": q.get("currency", ""),
+        "sector":   q.get("sector", ""),
+        "industry": q.get("industry", ""),
+
+        "marketCap":        mc,
+        "marketCapDisplay": fmt_mc(mc, symbol),
+
+        # Valuation
+        "peRatio":   sf(q.get("trailingPE")),
+        "forwardPE": sf(q.get("forwardPE")),
+        "pegRatio":  sf(q.get("pegRatio")),
+
+        # Growth
+        "earningsGrowth": sf(q.get("earningsGrowth")),
+        "revenueGrowth":  sf(q.get("revenueGrowth")),
+
+        # Profitability
+        "operatingMargin": om,
+        "profitMargin":    sf(q.get("profitMargins")),
+        "roe":             sf(q.get("returnOnEquity")),
+
+        # Balance sheet
+        "debtToEquity": sf(q.get("debtToEquity")),
+        "currentRatio": sf(q.get("currentRatio")),
+
+        # Financials TTM
+        "financialCurrency": q.get("financialCurrency") or q.get("currency") or "USD",
+        "totalRevenue":  tr,
+        "grossProfits":  sf(q.get("grossProfits")),
+        "ebitda":        sf(q.get("ebitda")),
+        "netIncomeTTM":  sf(q.get("netIncomeToCommon")),
+        "opIncomeTTM":   (om * tr) if (om is not None and tr is not None) else None,
+
+        # Analyst targets
+        "targetMeanPrice":    sf(q.get("targetMeanPrice")),
+        "targetHighPrice":    sf(q.get("targetHighPrice")),
+        "targetLowPrice":     sf(q.get("targetLowPrice")),
+        "numAnalysts":        q.get("numberOfAnalystOpinions"),
+        "recommendationKey":  q.get("recommendationKey", ""),
+        "recommendationMean": sf(q.get("recommendationMean")),
+
+        # Price action
+        "dayChange":        day_change,
+        "fiftyTwoWeekHigh": sf(q.get("fiftyTwoWeekHigh")),
+        "fiftyTwoWeekLow":  sf(q.get("fiftyTwoWeekLow")),
+
+        "nextEarnings": next_earn,
+    }
+
+
+# ── single stock (detail page / free search) ──────────────────────────────────
+# Uses v7/finance/quote first (no crumb); falls back to yfinance Ticker.info.
+
+def fetch_stock(symbol: str) -> dict:
+    # 1 — try the fast bulk-quote API for a single symbol
+    raw = _bulk_quotes([symbol])
+    q   = raw.get(symbol)
+    if q:
+        row = _quote_to_row(q)
+        if not row.get("error"):
+            return row
+
+    # 2 — fallback: yfinance Ticker.info (needs crumb; may fail on Render)
     row = {"symbol": symbol}
-    info = None
-    last_err = None
-
-    for attempt in range(max_retries):
-        try:
-            ticker = yf.Ticker(symbol, session=_session)
-            info = ticker.info or {}
-            if info:
-                break
-        except Exception as e:
-            last_err = e
-            err_str = str(e).lower()
-            is_rate  = "rate" in err_str or "too many" in err_str or "429" in err_str
-            is_crumb = "401" in err_str or "crumb" in err_str or "unauthorized" in err_str
-            if is_rate or is_crumb:
-                time.sleep(3 * (attempt + 1))
-                continue
-            else:
-                row["error"] = f"fetch failed: {str(e)[:80]}"
-                return row
-
-    if not info:
-        row["error"] = f"fetch failed: {str(last_err)[:80] if last_err else 'no data'}"
+    try:
+        ticker = yf.Ticker(symbol, session=_session)
+        info   = ticker.info or {}
+    except Exception as e:
+        row["error"] = f"fetch failed: {str(e)[:80]}"
         return row
 
     price = sf(info.get("currentPrice")) or sf(info.get("regularMarketPrice"))
@@ -99,25 +228,20 @@ def fetch_stock(symbol: str, max_retries: int = 3) -> dict:
     row["marketCap"]        = mc
     row["marketCapDisplay"] = fmt_mc(mc, symbol)
 
-    # Valuation
     row["peRatio"]   = sf(info.get("trailingPE"))
     row["forwardPE"] = sf(info.get("forwardPE"))
     row["pegRatio"]  = sf(info.get("pegRatio"))
 
-    # Growth
     row["earningsGrowth"] = sf(info.get("earningsQuarterlyGrowth"))
     row["revenueGrowth"]  = sf(info.get("revenueGrowth"))
 
-    # Profitability
     row["operatingMargin"] = sf(info.get("operatingMargins"))
     row["profitMargin"]    = sf(info.get("profitMargins"))
     row["roe"]             = sf(info.get("returnOnEquity"))
 
-    # Balance sheet
     row["debtToEquity"] = sf(info.get("debtToEquity"))
     row["currentRatio"] = sf(info.get("currentRatio"))
 
-    # Financials TTM
     row["financialCurrency"] = info.get("financialCurrency") or info.get("currency") or "USD"
     row["totalRevenue"]  = sf(info.get("totalRevenue"))
     row["grossProfits"]  = sf(info.get("grossProfits"))
@@ -127,17 +251,15 @@ def fetch_stock(symbol: str, max_retries: int = 3) -> dict:
     tr = sf(info.get("totalRevenue"))
     row["opIncomeTTM"] = (om * tr) if (om is not None and tr is not None) else None
 
-    # Analyst targets
-    row["targetMeanPrice"] = sf(info.get("targetMeanPrice"))
-    row["targetHighPrice"] = sf(info.get("targetHighPrice"))
-    row["targetLowPrice"]  = sf(info.get("targetLowPrice"))
-    row["numAnalysts"]     = info.get("numberOfAnalystOpinions")
+    row["targetMeanPrice"]    = sf(info.get("targetMeanPrice"))
+    row["targetHighPrice"]    = sf(info.get("targetHighPrice"))
+    row["targetLowPrice"]     = sf(info.get("targetLowPrice"))
+    row["numAnalysts"]        = info.get("numberOfAnalystOpinions")
     row["recommendationKey"]  = info.get("recommendationKey", "")
     row["recommendationMean"] = sf(info.get("recommendationMean"))
 
-    # Price action
     prev_close = sf(info.get("regularMarketPreviousClose")) or sf(info.get("previousClose"))
-    if prev_close and prev_close > 0 and price:
+    if prev_close and prev_close > 0:
         row["dayChange"] = (price - prev_close) / prev_close * 100
     else:
         row["dayChange"] = sf(info.get("regularMarketChangePercent"))
@@ -145,12 +267,10 @@ def fetch_stock(symbol: str, max_retries: int = 3) -> dict:
     row["fiftyTwoWeekHigh"] = sf(info.get("fiftyTwoWeekHigh"))
     row["fiftyTwoWeekLow"]  = sf(info.get("fiftyTwoWeekLow"))
 
-    # Next earnings — read from info (no extra HTTP call)
     row["nextEarnings"] = ""
     try:
         ts = info.get("earningsTimestampStart") or info.get("earningsTimestamp")
         if ts:
-            from datetime import datetime, timezone
             row["nextEarnings"] = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
     except Exception:
         pass
@@ -161,50 +281,43 @@ def fetch_stock(symbol: str, max_retries: int = 3) -> dict:
 # ── batch ──────────────────────────────────────────────────────────────────────
 
 def fetch_batch(symbols: list) -> list:
+    raw = _bulk_quotes(symbols)
     results = []
     for sym in symbols:
-        results.append(fetch_stock(sym))
-        time.sleep(0.35)
+        q = raw.get(sym)
+        results.append(_quote_to_row(q) if q else {"symbol": sym, "error": "no data"})
     return results
 
 
-# ── sequential stream ──────────────────────────────────────────────────────────
-# Fetches stocks one-by-one with a short delay between each.
-# Sequential = no crumb contention = no 401 errors on shared IPs.
-# ~0.7 s/stock → ~45 s for 60 stocks; user sees results streaming the whole time.
+# ── stream  (scan — bulk quote, then emit one JSON line per stock) ─────────────
 
 def stream_parallel(symbols: list, max_workers: int = 3) -> None:
-    """Name kept for API compatibility; implementation is purely sequential."""
+    """
+    Fetches ALL symbols in 1-2 HTTP requests via v7/finance/quote (no crumb).
+    Emits one JSON line per symbol immediately after the bulk fetch completes.
+    Falls back to individual sequential fetch for any symbols that were missed.
+    """
     if not symbols:
         return
 
-    failed = []
+    raw = _bulk_quotes(symbols)
 
+    missing = []
     for sym in symbols:
-        try:
-            row = fetch_stock(sym)
-        except Exception as e:
-            row = {"symbol": sym, "error": str(e)[:80]}
-
-        err = row.get("error", "")
-        # Rate-limited? Collect for one retry pass at the end.
-        if "401" in err or "crumb" in err.lower() or "rate" in err.lower() or "too many" in err.lower():
-            failed.append(sym)
+        q = raw.get(sym)
+        if q:
+            row = _quote_to_row(q)
+            print(json.dumps(row), flush=True)
         else:
-            print(json.dumps(row), flush=True)
+            missing.append(sym)
 
-        time.sleep(0.7)   # 0.7 s gap → Yahoo never sees a burst
-
-    # ── Retry pass for any rate-limited stocks ────────────────────────────────
-    if failed:
-        time.sleep(8)
-        for sym in failed:
-            try:
-                row = fetch_stock(sym)
-            except Exception as e:
-                row = {"symbol": sym, "error": str(e)[:80]}
+    # Sequential fallback for anything the bulk call missed
+    if missing:
+        time.sleep(2)
+        for sym in missing:
+            row = fetch_stock(sym)
             print(json.dumps(row), flush=True)
-            time.sleep(1.2)
+            time.sleep(1.0)
 
 
 # ── candles ────────────────────────────────────────────────────────────────────
@@ -297,10 +410,10 @@ def fetch_enrich(symbol: str) -> dict:
                             return sf(qis.loc[n, col])
                     return None
                 out["quarterly"] = {
-                    "qDate":             col.strftime("%Y-%m-%d") if hasattr(col,"strftime") else str(col)[:10],
-                    "qRevenue":          _get(["Total Revenue","TotalRevenue","Revenue"]),
-                    "qOperatingIncome":  _get(["Operating Income","OperatingIncome"]),
-                    "qNetIncome":        _get(["Net Income","Net Income Common Stockholders","NetIncome"]),
+                    "qDate":            col.strftime("%Y-%m-%d") if hasattr(col,"strftime") else str(col)[:10],
+                    "qRevenue":         _get(["Total Revenue","TotalRevenue","Revenue"]),
+                    "qOperatingIncome": _get(["Operating Income","OperatingIncome"]),
+                    "qNetIncome":       _get(["Net Income","Net Income Common Stockholders","NetIncome"]),
                 }
             else:
                 out["quarterly"] = {}
@@ -341,10 +454,10 @@ def fetch_enrich(symbol: str) -> dict:
                 if actual is not None and estimate is not None:
                     surprise = sf(latest.get("surprisePercent"))
                     out["lastEarnings"] = {
-                        "epsActual":    actual,
-                        "epsEstimate":  estimate,
-                        "surprisePct":  surprise,
-                        "beat":         actual >= estimate,
+                        "epsActual":   actual,
+                        "epsEstimate": estimate,
+                        "surprisePct": surprise,
+                        "beat":        actual >= estimate,
                     }
                 else:
                     out["lastEarnings"] = {}
