@@ -13,6 +13,7 @@ import { join } from "path";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { TICKERS } from "@/lib/tickers";
 import { hasMinData, applyScores, generateInsight, isValuePlay } from "@/lib/scoring";
+import { putStock } from "@/lib/stockCache";
 import type { ScanWeights, StockRow, ScanResult } from "@/lib/types";
 
 // ── Persistent file cache (survives server restarts, 30-min TTL) ──────────────
@@ -157,6 +158,7 @@ export async function GET(req: NextRequest) {
               enriched = { ...s, insight: generateInsight(s), isValuePlay: isValuePlay(s) };
             }
 
+            putStock(enriched); // cache for individual lookups
             safeEnqueue(enc.encode(sseEvent("stock", { row: enriched, received: allRows.length, total: allSymbols.length })));
           } catch {
             // non-JSON line — skip

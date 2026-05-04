@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchStock, fetchFullEnrich } from "@/lib/fetcher";
 import { applyScores, generateInsight, isValuePlay } from "@/lib/scoring";
+import { getStock, putStock } from "@/lib/stockCache";
 import type { ScanWeights } from "@/lib/types";
 
 export async function GET(
@@ -17,7 +18,11 @@ export async function GET(
 
   const sym = symbol.toUpperCase();
 
-  // 2 Python calls instead of 6 — reduces Yahoo rate-limit risk
+  // Cache hit — return immediately without hitting Yahoo Finance
+  const cached = getStock(sym);
+  if (cached) return NextResponse.json(cached);
+
+  // Cache miss — fetch from Yahoo (2 Python calls)
   const [row, enrich] = await Promise.all([
     fetchStock(sym),
     fetchFullEnrich(sym),
@@ -34,5 +39,6 @@ export async function GET(
   scored.forecasts = enrich.forecasts;
   scored.lastEarnings = enrich.lastEarnings;
 
+  putStock(scored); // save for next time
   return NextResponse.json(scored);
 }
