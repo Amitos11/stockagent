@@ -134,8 +134,15 @@ def fetch_stock(symbol: str, max_retries: int = 2) -> dict:
     row["fiftyTwoWeekHigh"] = sf(info.get("fiftyTwoWeekHigh"))
     row["fiftyTwoWeekLow"]  = sf(info.get("fiftyTwoWeekLow"))
 
-    # Next earnings — skip calendar call (extra HTTP request, too slow for batch scan)
+    # Next earnings — read from info (no extra HTTP call)
     row["nextEarnings"] = ""
+    try:
+        ts = info.get("earningsTimestampStart") or info.get("earningsTimestamp")
+        if ts:
+            from datetime import datetime, timezone
+            row["nextEarnings"] = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+    except Exception:
+        pass
 
     return row
 
@@ -156,7 +163,9 @@ def fetch_batch(symbols: list) -> list:
 
 def stream_parallel(symbols: list, max_workers: int = 4) -> None:
     def fetch_with_delay(sym: str, idx: int) -> dict:
-        time.sleep(idx * 0.3)  # stagger starts to avoid simultaneous crumb requests
+        # Only stagger the first batch to avoid simultaneous crumb requests
+        if idx < max_workers:
+            time.sleep(idx * 0.2)
         return fetch_stock(sym)
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
