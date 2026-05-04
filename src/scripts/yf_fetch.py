@@ -158,7 +158,7 @@ def stream_parallel(symbols: list, max_workers: int = 4) -> None:
     failed = []
 
     def fetch_staggered(sym: str, idx: int) -> dict:
-        time.sleep(min(idx * 0.2, 0.6))  # stagger only first 4 workers
+        time.sleep(idx * 0.2)
         return fetch_stock(sym)
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
