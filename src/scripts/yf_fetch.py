@@ -34,7 +34,7 @@ except Exception:
 def _make_session():
     if _CffiSession is None:
         return None
-    return _CffiSession(impersonate="chrome120")
+    return _CffiSession(impersonate="chrome")
 
 _session = _make_session()
 
