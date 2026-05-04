@@ -55,7 +55,7 @@ def fmt_mc(mc, symbol):
 
 # ── single stock ───────────────────────────────────────────────────────────────
 
-def fetch_stock(symbol: str, max_retries: int = 2) -> dict:
+def fetch_stock(symbol: str, max_retries: int = 3) -> dict:
     row = {"symbol": symbol}
     info = None
     last_err = None
@@ -70,7 +70,7 @@ def fetch_stock(symbol: str, max_retries: int = 2) -> dict:
             last_err = e
             err_str = str(e).lower()
             if "rate" in err_str or "too many" in err_str or "429" in err_str:
-                time.sleep(2 * (attempt + 1))  # max 4 seconds, not 45
+                time.sleep(3 * (attempt + 1))  # 3s, 6s, 9s
                 continue
             else:
                 row["error"] = f"fetch failed: {str(e)[:80]}"

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchStock, fetchNews, fetchManagement, fetchQuarterly, fetchForwardEstimates, fetchEarningsHistory } from "@/lib/fetcher";
+import { fetchStock, fetchFullEnrich } from "@/lib/fetcher";
 import { applyScores, generateInsight, isValuePlay } from "@/lib/scoring";
 import type { ScanWeights } from "@/lib/types";
 
@@ -16,26 +16,23 @@ export async function GET(
   };
 
   const sym = symbol.toUpperCase();
-  let row = await fetchStock(sym);
-  if (row.error) return NextResponse.json(row);
 
-  row = applyScores(row, weights);
-  row.insight = generateInsight(row);
-  row.isValuePlay = isValuePlay(row);
-
-  const [news, management, quarterly, forecasts, lastEarnings] = await Promise.all([
-    fetchNews(sym),
-    fetchManagement(sym),
-    fetchQuarterly(sym),
-    fetchForwardEstimates(sym),
-    fetchEarningsHistory(sym),
+  // 2 Python calls instead of 6 — reduces Yahoo rate-limit risk
+  const [row, enrich] = await Promise.all([
+    fetchStock(sym),
+    fetchFullEnrich(sym),
   ]);
 
-  row.news = news;
-  row.management = management;
-  row.quarterly = quarterly;
-  row.forecasts = forecasts;
-  row.lastEarnings = lastEarnings;
+  if (row.error) return NextResponse.json(row);
 
-  return NextResponse.json(row);
+  let scored = applyScores(row, weights);
+  scored.insight = generateInsight(scored);
+  scored.isValuePlay = isValuePlay(scored);
+  scored.news = enrich.news;
+  scored.management = enrich.management;
+  scored.quarterly = enrich.quarterly;
+  scored.forecasts = enrich.forecasts;
+  scored.lastEarnings = enrich.lastEarnings;
+
+  return NextResponse.json(scored);
 }
