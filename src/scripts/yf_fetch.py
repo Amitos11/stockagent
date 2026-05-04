@@ -25,31 +25,9 @@ if os.path.isdir(_pylibs):
 import yfinance as yf
 
 # Shared curl_cffi session — one crumb for all parallel threads (yfinance 1.3+)
-try:
-    from curl_cffi import requests as cffi_requests
-    _CffiSession = cffi_requests.Session
-except Exception:
-    _CffiSession = None
-
-def _make_session():
-    if _CffiSession is None:
-        return None
-    # Try various impersonation targets in order of preference
-    for target in ("chrome", "chrome110", "safari"):
-        try:
-            return _CffiSession(impersonate=target)
-        except Exception:
-            continue
-    try:
-        return _CffiSession()  # no impersonation
-    except Exception:
-        return None
-
-_session = _make_session()
-# Log session status to stderr so we can see it in Render logs
-import sys as _sys
-_sys.stderr.write(f"[yf_fetch] session={'curl_cffi' if _session else 'none (fallback)'}\n")
-_sys.stderr.flush()
+# yfinance 1.3+ manages its own curl_cffi session and crumb internally.
+# Passing an external session causes crumb mismatches — let yfinance handle it.
+_session = None
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -83,18 +61,16 @@ def fetch_stock(symbol: str, max_retries: int = 3) -> dict:
 
     for attempt in range(max_retries):
         try:
-            ticker = yf.Ticker(symbol, session=_session) if _session else yf.Ticker(symbol)
+            ticker = yf.Ticker(symbol)
             info = ticker.info or {}
             if info:
                 break
         except Exception as e:
             last_err = e
             err_str = str(e).lower()
-            is_rate = "rate" in err_str or "too many" in err_str or "429" in err_str
+            is_rate  = "rate" in err_str or "too many" in err_str or "429" in err_str
             is_crumb = "401" in err_str or "crumb" in err_str or "unauthorized" in err_str
             if is_rate or is_crumb:
-                # Fresh session fixes crumb issues
-                _session = _make_session()
                 time.sleep(3 * (attempt + 1))
                 continue
             else:
@@ -219,10 +195,8 @@ def stream_parallel(symbols: list, max_workers: int = 4) -> None:
             else:
                 print(json.dumps(row), flush=True)
 
-    # Second pass — fresh session + sequential retry
+    # Second pass — retry failed symbols after short pause
     if failed:
-        global _session
-        _session = _make_session()  # new crumb for retry pass
         time.sleep(2)
         for sym in failed:
             time.sleep(0.4)
@@ -234,7 +208,7 @@ def stream_parallel(symbols: list, max_workers: int = 4) -> None:
 
 def fetch_candles(symbol: str) -> list:
     try:
-        ticker = yf.Ticker(symbol, session=_session) if _session else yf.Ticker(symbol)
+        ticker = yf.Ticker(symbol)
         hist = ticker.history(period="1mo")
         if hist.empty:
             return []
@@ -258,7 +232,7 @@ def fetch_news(symbol: str) -> list:
     POSITIVE = {"surge","jump","rally","beat","gain","profit","growth","strong"}
     NEGATIVE = {"crash","drop","fall","miss","loss","decline","weak","slump"}
     try:
-        ticker = yf.Ticker(symbol, session=_session) if _session else yf.Ticker(symbol)
+        ticker = yf.Ticker(symbol)
         news = ticker.news or []
         result = []
         for item in news[:3]:
@@ -292,7 +266,7 @@ def fetch_news(symbol: str) -> list:
 def fetch_enrich(symbol: str) -> dict:
     out = {}
     try:
-        ticker = yf.Ticker(symbol, session=_session) if _session else yf.Ticker(symbol)
+        ticker = yf.Ticker(symbol)
 
         # Management
         info = ticker.info or {}
