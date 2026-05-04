@@ -164,7 +164,7 @@ def fetch_batch(symbols: list) -> list:
 # Prints each completed stock as a single JSON line to stdout immediately.
 # The Node.js SSE route reads these lines and forwards them to the browser.
 
-def stream_parallel(symbols: list, max_workers: int = 5) -> None:
+def stream_parallel(symbols: list, max_workers: int = 12) -> None:
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(fetch_stock, sym): sym for sym in symbols}
         for future in as_completed(futures):
