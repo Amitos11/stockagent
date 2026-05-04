@@ -1,7 +1,7 @@
 # StockBot Web — Claude Session Context
 
 ## Project Overview
-A Next.js 15 stock screening web app that scans ~83 tickers using yfinance (Python subprocess),
+A Next.js 15 stock screening web app that scans 59 reliable tickers using yfinance (Python subprocess),
 scores them by Growth / Profitability / Valuation weights, and streams results via SSE.
 
 **Live URL:** https://stockagent-zudp.onrender.com  
