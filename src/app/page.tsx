@@ -586,7 +586,7 @@ function WeightSlider({
         type="range" min={0} max={100} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full cursor-pointer mb-2"
-        style={{ accentColor: trackColor }}
+        style={{ color: trackColor, accentColor: trackColor }}
         aria-label={`${label} weight`}
       />
       <div className="flex items-center justify-between gap-1">
