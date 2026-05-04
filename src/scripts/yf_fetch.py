@@ -27,9 +27,16 @@ import yfinance as yf
 # Shared curl_cffi session — one crumb for all parallel threads (yfinance 1.3+)
 try:
     from curl_cffi import requests as cffi_requests
-    _session = cffi_requests.Session(impersonate="chrome")
+    _CffiSession = cffi_requests.Session
 except Exception:
-    _session = None  # fallback: let yfinance manage its own session
+    _CffiSession = None
+
+def _make_session():
+    if _CffiSession is None:
+        return None
+    return _CffiSession(impersonate="chrome120")
+
+_session = _make_session()
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -56,6 +63,7 @@ def fmt_mc(mc, symbol):
 # ── single stock ───────────────────────────────────────────────────────────────
 
 def fetch_stock(symbol: str, max_retries: int = 3) -> dict:
+    global _session
     row = {"symbol": symbol}
     info = None
     last_err = None
@@ -69,8 +77,12 @@ def fetch_stock(symbol: str, max_retries: int = 3) -> dict:
         except Exception as e:
             last_err = e
             err_str = str(e).lower()
-            if "rate" in err_str or "too many" in err_str or "429" in err_str:
-                time.sleep(3 * (attempt + 1))  # 3s, 6s, 9s
+            is_rate = "rate" in err_str or "too many" in err_str or "429" in err_str
+            is_crumb = "401" in err_str or "crumb" in err_str or "unauthorized" in err_str
+            if is_rate or is_crumb:
+                # Fresh session fixes crumb issues
+                _session = _make_session()
+                time.sleep(3 * (attempt + 1))
                 continue
             else:
                 row["error"] = f"fetch failed: {str(e)[:80]}"
@@ -194,11 +206,13 @@ def stream_parallel(symbols: list, max_workers: int = 4) -> None:
             else:
                 print(json.dumps(row), flush=True)
 
-    # Second pass — retry failed symbols sequentially with delay
+    # Second pass — fresh session + sequential retry
     if failed:
-        time.sleep(3)
+        global _session
+        _session = _make_session()  # new crumb for retry pass
+        time.sleep(4)
         for sym in failed:
-            time.sleep(0.5)
+            time.sleep(0.6)
             row = fetch_stock(sym)
             print(json.dumps(row), flush=True)
 
