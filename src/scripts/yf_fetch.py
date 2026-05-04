@@ -15,7 +15,7 @@ import json
 import sys
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+# ThreadPoolExecutor removed — stream is now sequential (avoids Yahoo 401 crumb errors)
 
 # Add local _pylibs dir to path (installed at build time on Render)
 _pylibs = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_pylibs")
@@ -168,48 +168,43 @@ def fetch_batch(symbols: list) -> list:
     return results
 
 
-# ── parallel stream ─────────────────────────────────────────────────────────────
-# Prints each completed stock as a single JSON line to stdout immediately.
-# The Node.js SSE route reads these lines and forwards them to the browser.
+# ── sequential stream ──────────────────────────────────────────────────────────
+# Fetches stocks one-by-one with a short delay between each.
+# Sequential = no crumb contention = no 401 errors on shared IPs.
+# ~0.7 s/stock → ~45 s for 60 stocks; user sees results streaming the whole time.
 
-def stream_parallel(symbols: list, max_workers: int = 4) -> None:
+def stream_parallel(symbols: list, max_workers: int = 3) -> None:
+    """Name kept for API compatibility; implementation is purely sequential."""
     if not symbols:
         return
 
-    # ── Crumb warm-up ──────────────────────────────────────────────────────────
-    # Fetch the first stock sequentially so yfinance establishes its crumb.
-    # All subsequent threads reuse the same cached crumb (module-level in yfinance).
-    warmup_sym = symbols[0]
-    rest = symbols[1:]
-    warmup = fetch_stock(warmup_sym)
-    print(json.dumps(warmup), flush=True)
-    time.sleep(0.3)  # let crumb settle
-
     failed = []
 
-    # ── Parallel pass (remaining symbols) ─────────────────────────────────────
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(fetch_stock, sym): sym for sym in rest}
-        for future in as_completed(futures):
-            sym = futures[future]
+    for sym in symbols:
+        try:
+            row = fetch_stock(sym)
+        except Exception as e:
+            row = {"symbol": sym, "error": str(e)[:80]}
+
+        err = row.get("error", "")
+        # Rate-limited? Collect for one retry pass at the end.
+        if "401" in err or "crumb" in err.lower() or "rate" in err.lower() or "too many" in err.lower():
+            failed.append(sym)
+        else:
+            print(json.dumps(row), flush=True)
+
+        time.sleep(0.7)   # 0.7 s gap → Yahoo never sees a burst
+
+    # ── Retry pass for any rate-limited stocks ────────────────────────────────
+    if failed:
+        time.sleep(8)
+        for sym in failed:
             try:
-                row = future.result()
+                row = fetch_stock(sym)
             except Exception as e:
                 row = {"symbol": sym, "error": str(e)[:80]}
-
-            err = row.get("error", "")
-            if "401" in err or "crumb" in err.lower() or "rate" in err.lower() or "too many" in err.lower():
-                failed.append(sym)
-            else:
-                print(json.dumps(row), flush=True)
-
-    # ── Retry pass ─────────────────────────────────────────────────────────────
-    if failed:
-        time.sleep(3)
-        for sym in failed:
-            time.sleep(0.5)
-            row = fetch_stock(sym)
             print(json.dumps(row), flush=True)
+            time.sleep(1.2)
 
 
 # ── candles ────────────────────────────────────────────────────────────────────
