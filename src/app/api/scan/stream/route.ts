@@ -10,23 +10,47 @@
 import { NextRequest } from "next/server";
 import { spawn } from "child_process";
 import { join } from "path";
+import { readFileSync, writeFileSync, existsSync } from "fs";
 import { TICKERS } from "@/lib/tickers";
 import { hasMinData, applyScores, generateInsight, isValuePlay } from "@/lib/scoring";
 import type { ScanWeights, StockRow, ScanResult } from "@/lib/types";
 
-// ── In-memory cache (15-minute TTL) ───────────────────────────────────────────
+// ── Persistent file cache (survives server restarts, 30-min TTL) ──────────────
 
 interface CacheEntry {
   result: ScanResult;
   expiresAt: number;
 }
 
-const cache = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 15 * 60 * 1000;
+const CACHE_FILE = join(process.cwd(), ".scan-cache.json");
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const memCache = new Map<string, CacheEntry>();
 
 function cacheKey(weights: ScanWeights) {
   return `${weights.growth}:${weights.profitability}:${weights.valuation}`;
 }
+
+function loadCache() {
+  try {
+    if (existsSync(CACHE_FILE)) {
+      const data = JSON.parse(readFileSync(CACHE_FILE, "utf-8")) as Record<string, CacheEntry>;
+      for (const [k, v] of Object.entries(data)) {
+        if (v.expiresAt > Date.now()) memCache.set(k, v);
+      }
+    }
+  } catch { /* ignore */ }
+}
+
+function saveCache() {
+  try {
+    const data: Record<string, CacheEntry> = {};
+    memCache.forEach((v, k) => { data[k] = v; });
+    writeFileSync(CACHE_FILE, JSON.stringify(data), "utf-8");
+  } catch { /* ignore */ }
+}
+
+// Load persisted cache on startup
+loadCache();
 
 // ── Score + rank helper (same logic as /api/scan POST) ────────────────────────
 
@@ -72,7 +96,7 @@ export async function GET(req: NextRequest) {
   };
 
   const key = cacheKey(weights);
-  const cached = cache.get(key);
+  const cached = memCache.get(key);
   if (cached && cached.expiresAt > Date.now()) {
     // Cache hit — return complete event immediately (wrap in data key)
     const body = sseEvent("complete", cached.result as unknown as Record<string, unknown>);
@@ -146,7 +170,8 @@ export async function GET(req: NextRequest) {
 
       py.on("close", () => {
         const result = buildResult(allRows, weights);
-        cache.set(key, { result, expiresAt: Date.now() + CACHE_TTL_MS });
+        memCache.set(key, { result, expiresAt: Date.now() + CACHE_TTL_MS });
+        saveCache();
         safeEnqueue(enc.encode(sseEvent("complete", result)));
         safeClose();
       });

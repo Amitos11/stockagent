@@ -574,21 +574,38 @@ function WeightSlider({
   label: string; value: number; onChange: (v: number) => void;
   color: string; trackColor: string;
 }) {
+  const step = (delta: number) => onChange(Math.max(0, Math.min(100, value + delta)));
+
   return (
     <div>
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-xs font-medium text-slate-500">{label}</span>
         <span className={`text-xs font-bold tabular-nums ${color}`}>{value}%</span>
       </div>
-      <div className="relative h-2 bg-slate-100 rounded-full mb-1">
-        <div className={`h-full ${trackColor} rounded-full`} style={{ width: `${value}%` }} />
+      <div className="relative h-2 bg-slate-100 rounded-full mb-2">
+        <div className={`h-full ${trackColor} rounded-full transition-all`} style={{ width: `${value}%` }} />
       </div>
       <input
         type="range" min={0} max={100} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full cursor-pointer opacity-0 h-2 mt-[-8px] relative"
+        className="w-full cursor-pointer opacity-0 h-2 mt-[-10px] relative mb-1"
         aria-label={`${label} weight`}
       />
+      <div className="flex items-center justify-between gap-1 mt-1">
+        <button
+          onClick={() => step(-5)}
+          className="w-6 h-6 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-bold flex items-center justify-center transition-colors cursor-pointer select-none"
+        >−</button>
+        <input
+          type="number" min={0} max={100} value={value}
+          onChange={(e) => onChange(Math.max(0, Math.min(100, Number(e.target.value))))}
+          className="w-12 text-center text-xs font-semibold border border-slate-200 rounded-md py-0.5 focus:outline-none focus:ring-1 focus:ring-amber-400 tabular-nums"
+        />
+        <button
+          onClick={() => step(5)}
+          className="w-6 h-6 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-bold flex items-center justify-center transition-colors cursor-pointer select-none"
+        >+</button>
+      </div>
     </div>
   );
 }
