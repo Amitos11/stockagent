@@ -78,6 +78,33 @@ export async function getFinnhubProfile(symbol: string): Promise<FinnhubProfile 
   return fhGet<FinnhubProfile>("/stock/profile2", { symbol });
 }
 
+// ── Candle history (30 days, daily) ──────────────────────────────────────────
+
+export interface FinnhubCandle {
+  time:  string; // "YYYY-MM-DD"
+  open:  number;
+  high:  number;
+  low:   number;
+  close: number;
+}
+
+export async function getFinnhubCandles(symbol: string, days = 35): Promise<FinnhubCandle[]> {
+  const to   = Math.floor(Date.now() / 1000);
+  const from = to - days * 86400;
+  const data = await fhGet<{ s: string; t: number[]; o: number[]; h: number[]; l: number[]; c: number[] }>(
+    "/stock/candle",
+    { symbol, resolution: "D", from: String(from), to: String(to) }
+  );
+  if (!data || data.s !== "ok" || !data.t?.length) return [];
+  return data.t.map((ts, i) => ({
+    time:  new Date(ts * 1000).toISOString().slice(0, 10),
+    open:  Math.round(data.o[i] * 10000) / 10000,
+    high:  Math.round(data.h[i] * 10000) / 10000,
+    low:   Math.round(data.l[i] * 10000) / 10000,
+    close: Math.round(data.c[i] * 10000) / 10000,
+  }));
+}
+
 // ── Analyst recommendations ───────────────────────────────────────────────────
 
 export interface FinnhubRec {

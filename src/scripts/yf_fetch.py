@@ -223,9 +223,9 @@ def stream_parallel(symbols: list, max_workers: int = 4) -> None:
     if failed:
         global _session
         _session = _make_session()  # new crumb for retry pass
-        time.sleep(4)
+        time.sleep(2)
         for sym in failed:
-            time.sleep(0.6)
+            time.sleep(0.4)
             row = fetch_stock(sym)
             print(json.dumps(row), flush=True)
 
