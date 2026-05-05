@@ -52,6 +52,39 @@ def fmt_mc(mc, symbol):
     return f"{sym}{mc:.0f}"
 
 
+# ── TASE per-symbol cache (60-min TTL) ─────────────────────────────────────────
+# Yahoo rate-limits .TA fetches when many run in parallel from the same IP.
+# We cache the last successful row per .TA symbol so the next scan can serve
+# instantly while a background fetch refreshes the file.
+
+_TASE_CACHE_PATH = os.path.join(os.getcwd(), ".tase-cache.json")
+_TASE_CACHE_TTL  = 60 * 60   # seconds
+
+def _tase_cache_load() -> dict:
+    try:
+        with open(_TASE_CACHE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f) or {}
+    except Exception:
+        return {}
+
+def _tase_cache_get(symbol: str) -> dict | None:
+    entry = _tase_cache_load().get(symbol)
+    if not entry: return None
+    if (time.time() - entry.get("_ts", 0)) > _TASE_CACHE_TTL: return None
+    return entry.get("row")
+
+def _tase_cache_put(row: dict) -> None:
+    sym = row.get("symbol", "")
+    if not sym or not sym.endswith(".TA") or row.get("error"): return
+    data = _tase_cache_load()
+    data[sym] = {"_ts": time.time(), "row": row}
+    try:
+        with open(_TASE_CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+
 # ── FMP — bulk quote (one request for all symbols) ─────────────────────────────
 
 def _fmp_bulk(symbols: list) -> dict:
@@ -157,7 +190,7 @@ def _yf_fetch(symbol: str, max_retries: int = 3) -> dict:
     row.update({
         "name":     info.get("shortName") or info.get("longName") or "",
         "price":    price,
-        "currency": info.get("currency", ""),
+        "currency": info.get("currency") or ("ILS" if symbol.endswith(".TA") else ""),
         "sector":   info.get("sector", ""),
         "industry": info.get("industry", ""),
         "marketCap":        mc,
@@ -172,7 +205,7 @@ def _yf_fetch(symbol: str, max_retries: int = 3) -> dict:
         "roe":              sf(info.get("returnOnEquity")),
         "debtToEquity":     sf(info.get("debtToEquity")),
         "currentRatio":     sf(info.get("currentRatio")),
-        "financialCurrency": info.get("financialCurrency") or info.get("currency") or "USD",
+        "financialCurrency": info.get("financialCurrency") or info.get("currency") or ("ILS" if symbol.endswith(".TA") else "USD"),
         "totalRevenue":     tr,
         "grossProfits":     sf(info.get("grossProfits")),
         "ebitda":           sf(info.get("ebitda")),
@@ -233,10 +266,35 @@ def stream_parallel(symbols: list, max_workers: int = 4) -> None:
                 print(json.dumps(row), flush=True)
             else:
                 missing.append(sym)
-        # yfinance fallback for any FMP misses
-        for sym in missing:
-            print(json.dumps(_yf_fetch(sym)), flush=True)
-            time.sleep(0.5)
+
+        # FMP misses → mostly .TA. Serve cache first, then fetch rest with
+        # bounded retries and reduced concurrency to avoid Yahoo rate-limit.
+        if missing:
+            need_fetch = []
+            for sym in missing:
+                if sym.endswith(".TA"):
+                    cached = _tase_cache_get(sym)
+                    if cached:
+                        print(json.dumps(cached), flush=True)
+                        continue
+                need_fetch.append(sym)
+
+            if need_fetch:
+                def _fb(sym: str, idx: int) -> dict:
+                    time.sleep(idx * 0.4)
+                    retries = 1 if sym.endswith(".TA") else 3
+                    return _yf_fetch(sym, max_retries=retries)
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    futures = {executor.submit(_fb, sym, idx): sym
+                               for idx, sym in enumerate(need_fetch)}
+                    for future in as_completed(futures):
+                        sym = futures[future]
+                        try:
+                            row = future.result()
+                        except Exception as e:
+                            row = {"symbol": sym, "error": str(e)[:80]}
+                        _tase_cache_put(row)
+                        print(json.dumps(row), flush=True)
         return
 
     # ── yfinance fallback path ─────────────────────────────────────────────────
