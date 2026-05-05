@@ -62,7 +62,7 @@ def fetch_stock(symbol: str, max_retries: int = 3) -> dict:
             last_err = e
             s = str(e).lower()
             if "401" in s or "crumb" in s or "rate" in s or "too many" in s or "429" in s:
-                time.sleep(4 * (attempt + 1))
+                time.sleep(1.5 * (attempt + 1))
                 continue
             row["error"] = f"fetch failed: {str(e)[:80]}"
             return row
@@ -179,11 +179,11 @@ def stream_parallel(symbols: list, max_workers: int = 4) -> None:
 
     # Retry pass
     if failed:
-        time.sleep(5)
+        time.sleep(2)
         for sym in failed:
             row = fetch_stock(sym)
             print(json.dumps(row), flush=True)
-            time.sleep(1.0)
+            time.sleep(0.5)
 
 
 # ── candles ────────────────────────────────────────────────────────────────────
