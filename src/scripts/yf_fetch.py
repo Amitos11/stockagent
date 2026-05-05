@@ -154,10 +154,13 @@ def _yf_fetch(symbol: str, max_retries: int = 3) -> dict:
     tr = sf(info.get("totalRevenue"))
     prev = sf(info.get("regularMarketPreviousClose")) or sf(info.get("previousClose"))
 
+    is_tase = symbol.endswith(".TA")
+    fallback_ccy = "ILS" if is_tase else "USD"
+
     row.update({
         "name":     info.get("shortName") or info.get("longName") or "",
         "price":    price,
-        "currency": info.get("currency", ""),
+        "currency": info.get("currency") or (fallback_ccy if is_tase else ""),
         "sector":   info.get("sector", ""),
         "industry": info.get("industry", ""),
         "marketCap":        mc,
@@ -172,7 +175,7 @@ def _yf_fetch(symbol: str, max_retries: int = 3) -> dict:
         "roe":              sf(info.get("returnOnEquity")),
         "debtToEquity":     sf(info.get("debtToEquity")),
         "currentRatio":     sf(info.get("currentRatio")),
-        "financialCurrency": info.get("financialCurrency") or info.get("currency") or "USD",
+        "financialCurrency": info.get("financialCurrency") or info.get("currency") or fallback_ccy,
         "totalRevenue":     tr,
         "grossProfits":     sf(info.get("grossProfits")),
         "ebitda":           sf(info.get("ebitda")),
@@ -233,10 +236,21 @@ def stream_parallel(symbols: list, max_workers: int = 4) -> None:
                 print(json.dumps(row), flush=True)
             else:
                 missing.append(sym)
-        # yfinance fallback for any FMP misses
-        for sym in missing:
-            print(json.dumps(_yf_fetch(sym)), flush=True)
-            time.sleep(0.5)
+        # yfinance fallback for FMP misses (e.g. .TA tickers) — parallel with stagger
+        if missing:
+            def _fb(sym: str, idx: int) -> dict:
+                time.sleep(idx * 0.2)
+                return _yf_fetch(sym)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(_fb, sym, idx): sym
+                           for idx, sym in enumerate(missing)}
+                for future in as_completed(futures):
+                    sym = futures[future]
+                    try:
+                        row = future.result()
+                    except Exception as e:
+                        row = {"symbol": sym, "error": str(e)[:80]}
+                    print(json.dumps(row), flush=True)
         return
 
     # ── yfinance fallback path ─────────────────────────────────────────────────
