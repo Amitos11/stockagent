@@ -63,8 +63,8 @@ def _fmp_bulk(symbols: list) -> dict:
         chunk = symbols[i:i+100]
         try:
             r = _session.get(
-                f"https://financialmodelingprep.com/api/v3/quote/{','.join(chunk)}",
-                params={"apikey": FMP_KEY},
+                "https://financialmodelingprep.com/stable/quote",
+                params={"symbol": ",".join(chunk), "apikey": FMP_KEY},
                 timeout=20,
             )
             if not r.ok:
@@ -77,7 +77,7 @@ def _fmp_bulk(symbols: list) -> dict:
                 if not price: continue
                 mc   = sf(q.get("marketCap"))
                 prev = sf(q.get("previousClose"))
-                day_chg = ((price - prev) / prev * 100) if (prev and prev > 0) else sf(q.get("changesPercentage"))
+                day_chg = ((price - prev) / prev * 100) if (prev and prev > 0) else sf(q.get("changePercentage"))
                 next_earn = (q.get("earningsAnnouncement") or "")[:10]
                 out[sym] = {
                     "symbol":   sym,
