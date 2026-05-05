@@ -1,6 +1,7 @@
 """
 yfinance data fetcher — called from Next.js API routes via subprocess.
-Outputs a single JSON object to stdout.
+Primary data source: Financial Modeling Prep (FMP) — fast, reliable, no IP blocks.
+Fallback: yfinance (Yahoo Finance).
 
 Usage:
   python yf_fetch.py stock   <SYMBOL>
@@ -15,7 +16,6 @@ import json, sys, os, time
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Add local _pylibs dir (installed at startup on Render)
 _pylibs = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_pylibs")
 if os.path.isdir(_pylibs):
     sys.path.insert(0, _pylibs)
@@ -23,7 +23,15 @@ if os.path.isdir(_pylibs):
 import warnings
 warnings.filterwarnings("ignore")
 
+import requests
 import yfinance as yf
+
+FMP_KEY = os.environ.get("FMP_API_KEY", "")
+
+_session = requests.Session()
+_session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+})
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -44,20 +52,85 @@ def fmt_mc(mc, symbol):
     return f"{sym}{mc:.0f}"
 
 
-# ── single stock ───────────────────────────────────────────────────────────────
+# ── FMP — bulk quote (one request for all symbols) ─────────────────────────────
 
-def fetch_stock(symbol: str, max_retries: int = 3) -> dict:
-    row  = {"symbol": symbol}
+def _fmp_bulk(symbols: list) -> dict:
+    """Returns {SYMBOL: row_dict} for all symbols in 1-2 HTTP requests."""
+    if not FMP_KEY:
+        return {}
+    out = {}
+    for i in range(0, len(symbols), 100):
+        chunk = symbols[i:i+100]
+        try:
+            r = _session.get(
+                f"https://financialmodelingprep.com/api/v3/quote/{','.join(chunk)}",
+                params={"apikey": FMP_KEY},
+                timeout=20,
+            )
+            if not r.ok:
+                print(f"[fmp] HTTP {r.status_code}", file=sys.stderr, flush=True)
+                continue
+            for q in (r.json() or []):
+                sym = q.get("symbol", "")
+                if not sym: continue
+                price = sf(q.get("price"))
+                if not price: continue
+                mc   = sf(q.get("marketCap"))
+                prev = sf(q.get("previousClose"))
+                day_chg = ((price - prev) / prev * 100) if (prev and prev > 0) else sf(q.get("changesPercentage"))
+                next_earn = (q.get("earningsAnnouncement") or "")[:10]
+                out[sym] = {
+                    "symbol":   sym,
+                    "name":     q.get("name", ""),
+                    "price":    price,
+                    "currency": "USD",
+                    "sector":   "",
+                    "industry": "",
+                    "marketCap":        mc,
+                    "marketCapDisplay": fmt_mc(mc, sym),
+                    "peRatio":          sf(q.get("pe")),
+                    "forwardPE":        None,
+                    "pegRatio":         None,
+                    "earningsGrowth":   None,
+                    "revenueGrowth":    None,
+                    "operatingMargin":  None,
+                    "profitMargin":     None,
+                    "roe":              None,
+                    "debtToEquity":     None,
+                    "currentRatio":     None,
+                    "financialCurrency": "USD",
+                    "totalRevenue":     None,
+                    "grossProfits":     None,
+                    "ebitda":           None,
+                    "netIncomeTTM":     None,
+                    "opIncomeTTM":      None,
+                    "targetMeanPrice":  None,
+                    "targetHighPrice":  sf(q.get("yearHigh")),
+                    "targetLowPrice":   sf(q.get("yearLow")),
+                    "numAnalysts":      None,
+                    "recommendationKey":  "",
+                    "recommendationMean": None,
+                    "dayChange":        day_chg,
+                    "fiftyTwoWeekHigh": sf(q.get("yearHigh")),
+                    "fiftyTwoWeekLow":  sf(q.get("yearLow")),
+                    "nextEarnings":     next_earn,
+                }
+        except Exception as e:
+            print(f"[fmp] error: {e}", file=sys.stderr, flush=True)
+    return out
+
+
+# ── yfinance fallback ──────────────────────────────────────────────────────────
+
+def _yf_fetch(symbol: str, max_retries: int = 3) -> dict:
+    row = {"symbol": symbol}
     info = None
     last_err = None
-
     for attempt in range(max_retries):
         try:
-            # NOTE: no session= — let yfinance use its built-in curl_cffi browser
             ticker = yf.Ticker(symbol)
             info   = ticker.info or {}
-            if info:
-                break
+            if info: break
         except Exception as e:
             last_err = e
             s = str(e).lower()
@@ -76,90 +149,107 @@ def fetch_stock(symbol: str, max_retries: int = 3) -> dict:
         row["error"] = "no price data"
         return row
 
-    row["name"]     = info.get("shortName") or info.get("longName") or ""
-    row["price"]    = price
-    row["currency"] = info.get("currency", "")
-    row["sector"]   = info.get("sector", "")
-    row["industry"] = info.get("industry", "")
-
     mc = sf(info.get("marketCap"))
-    row["marketCap"]        = mc
-    row["marketCapDisplay"] = fmt_mc(mc, symbol)
-
-    row["peRatio"]   = sf(info.get("trailingPE"))
-    row["forwardPE"] = sf(info.get("forwardPE"))
-    row["pegRatio"]  = sf(info.get("pegRatio"))
-
-    row["earningsGrowth"] = sf(info.get("earningsQuarterlyGrowth"))
-    row["revenueGrowth"]  = sf(info.get("revenueGrowth"))
-
-    row["operatingMargin"] = sf(info.get("operatingMargins"))
-    row["profitMargin"]    = sf(info.get("profitMargins"))
-    row["roe"]             = sf(info.get("returnOnEquity"))
-
-    row["debtToEquity"] = sf(info.get("debtToEquity"))
-    row["currentRatio"] = sf(info.get("currentRatio"))
-
-    row["financialCurrency"] = info.get("financialCurrency") or info.get("currency") or "USD"
-    row["totalRevenue"]  = sf(info.get("totalRevenue"))
-    row["grossProfits"]  = sf(info.get("grossProfits"))
-    row["ebitda"]        = sf(info.get("ebitda"))
-    row["netIncomeTTM"]  = sf(info.get("netIncomeToCommon"))
     om = sf(info.get("operatingMargins"))
     tr = sf(info.get("totalRevenue"))
-    row["opIncomeTTM"] = (om * tr) if (om is not None and tr is not None) else None
-
-    row["targetMeanPrice"]    = sf(info.get("targetMeanPrice"))
-    row["targetHighPrice"]    = sf(info.get("targetHighPrice"))
-    row["targetLowPrice"]     = sf(info.get("targetLowPrice"))
-    row["numAnalysts"]        = info.get("numberOfAnalystOpinions")
-    row["recommendationKey"]  = info.get("recommendationKey", "")
-    row["recommendationMean"] = sf(info.get("recommendationMean"))
-
     prev = sf(info.get("regularMarketPreviousClose")) or sf(info.get("previousClose"))
-    row["dayChange"] = ((price - prev) / prev * 100) if (prev and prev > 0) else sf(info.get("regularMarketChangePercent"))
 
-    row["fiftyTwoWeekHigh"] = sf(info.get("fiftyTwoWeekHigh"))
-    row["fiftyTwoWeekLow"]  = sf(info.get("fiftyTwoWeekLow"))
-
-    row["nextEarnings"] = ""
+    row.update({
+        "name":     info.get("shortName") or info.get("longName") or "",
+        "price":    price,
+        "currency": info.get("currency", ""),
+        "sector":   info.get("sector", ""),
+        "industry": info.get("industry", ""),
+        "marketCap":        mc,
+        "marketCapDisplay": fmt_mc(mc, symbol),
+        "peRatio":          sf(info.get("trailingPE")),
+        "forwardPE":        sf(info.get("forwardPE")),
+        "pegRatio":         sf(info.get("pegRatio")),
+        "earningsGrowth":   sf(info.get("earningsQuarterlyGrowth")),
+        "revenueGrowth":    sf(info.get("revenueGrowth")),
+        "operatingMargin":  om,
+        "profitMargin":     sf(info.get("profitMargins")),
+        "roe":              sf(info.get("returnOnEquity")),
+        "debtToEquity":     sf(info.get("debtToEquity")),
+        "currentRatio":     sf(info.get("currentRatio")),
+        "financialCurrency": info.get("financialCurrency") or info.get("currency") or "USD",
+        "totalRevenue":     tr,
+        "grossProfits":     sf(info.get("grossProfits")),
+        "ebitda":           sf(info.get("ebitda")),
+        "netIncomeTTM":     sf(info.get("netIncomeToCommon")),
+        "opIncomeTTM":      (om * tr) if (om is not None and tr is not None) else None,
+        "targetMeanPrice":  sf(info.get("targetMeanPrice")),
+        "targetHighPrice":  sf(info.get("targetHighPrice")),
+        "targetLowPrice":   sf(info.get("targetLowPrice")),
+        "numAnalysts":      info.get("numberOfAnalystOpinions"),
+        "recommendationKey":  info.get("recommendationKey", ""),
+        "recommendationMean": sf(info.get("recommendationMean")),
+        "dayChange":        ((price - prev) / prev * 100) if (prev and prev > 0) else sf(info.get("regularMarketChangePercent")),
+        "fiftyTwoWeekHigh": sf(info.get("fiftyTwoWeekHigh")),
+        "fiftyTwoWeekLow":  sf(info.get("fiftyTwoWeekLow")),
+        "nextEarnings":     "",
+    })
     try:
         ts = info.get("earningsTimestampStart") or info.get("earningsTimestamp")
         if ts:
             row["nextEarnings"] = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
     except Exception:
         pass
-
     return row
 
 
-# ── batch ──────────────────────────────────────────────────────────────────────
+# ── public API ─────────────────────────────────────────────────────────────────
+
+def fetch_stock(symbol: str) -> dict:
+    if FMP_KEY:
+        raw = _fmp_bulk([symbol])
+        if symbol in raw:
+            return raw[symbol]
+    return _yf_fetch(symbol)
+
 
 def fetch_batch(symbols: list) -> list:
+    if FMP_KEY:
+        raw = _fmp_bulk(symbols)
+        return [raw.get(s) or {"symbol": s, "error": "no data"} for s in symbols]
     results = []
     for sym in symbols:
-        results.append(fetch_stock(sym))
+        results.append(_yf_fetch(sym))
         time.sleep(0.35)
     return results
 
-
-# ── stream (parallel, 4 workers) ──────────────────────────────────────────────
 
 def stream_parallel(symbols: list, max_workers: int = 4) -> None:
     if not symbols:
         return
 
-    # Warm up crumb with first stock sequentially
-    first_row = fetch_stock(symbols[0])
+    # ── FMP path: 1 HTTP request for all symbols, results in ~2s ──────────────
+    if FMP_KEY:
+        raw = _fmp_bulk(symbols)
+        missing = []
+        for sym in symbols:
+            row = raw.get(sym)
+            if row:
+                print(json.dumps(row), flush=True)
+            else:
+                missing.append(sym)
+        # yfinance fallback for any FMP misses
+        for sym in missing:
+            print(json.dumps(_yf_fetch(sym)), flush=True)
+            time.sleep(0.5)
+        return
+
+    # ── yfinance fallback path ─────────────────────────────────────────────────
+    first_row = _yf_fetch(symbols[0])
     print(json.dumps(first_row), flush=True)
     time.sleep(0.5)
 
-    rest   = symbols[1:]
+    rest = symbols[1:]
     failed = []
 
     def fetch_staggered(sym: str, idx: int) -> dict:
         time.sleep(idx * 0.2)
-        return fetch_stock(sym)
+        return _yf_fetch(sym)
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(fetch_staggered, sym, idx): sym
@@ -170,23 +260,20 @@ def stream_parallel(symbols: list, max_workers: int = 4) -> None:
                 row = future.result()
             except Exception as e:
                 row = {"symbol": sym, "error": str(e)[:80]}
-
             err = row.get("error", "")
             if "401" in err or "crumb" in err.lower() or "rate" in err.lower() or "too many" in err.lower():
                 failed.append(sym)
             else:
                 print(json.dumps(row), flush=True)
 
-    # Retry pass
     if failed:
         time.sleep(2)
         for sym in failed:
-            row = fetch_stock(sym)
-            print(json.dumps(row), flush=True)
+            print(json.dumps(_yf_fetch(sym)), flush=True)
             time.sleep(0.5)
 
 
-# ── candles ────────────────────────────────────────────────────────────────────
+# ── candles (yfinance chart API — works without crumb) ─────────────────────────
 
 def fetch_candles(symbol: str) -> list:
     try:
@@ -194,13 +281,9 @@ def fetch_candles(symbol: str) -> list:
         if hist.empty:
             return []
         return [
-            {
-                "time":  dt.strftime("%Y-%m-%d"),
-                "open":  round(float(r["Open"]),  4),
-                "high":  round(float(r["High"]),  4),
-                "low":   round(float(r["Low"]),   4),
-                "close": round(float(r["Close"]), 4),
-            }
+            {"time": dt.strftime("%Y-%m-%d"), "open": round(float(r["Open"]),4),
+             "high": round(float(r["High"]),4), "low": round(float(r["Low"]),4),
+             "close": round(float(r["Close"]),4)}
             for dt, r in hist.iterrows()
         ]
     except Exception:
@@ -213,15 +296,14 @@ def fetch_news(symbol: str) -> list:
     POS = {"surge","jump","rally","beat","gain","profit","growth","strong"}
     NEG = {"crash","drop","fall","miss","loss","decline","weak","slump"}
     try:
-        news   = yf.Ticker(symbol).news or []
+        news = yf.Ticker(symbol).news or []
         result = []
         for item in news[:3]:
             c     = item.get("content", item)
             title = c.get("title") or item.get("title") or ""
             cu    = c.get("canonicalUrl") or {}
             link  = (cu.get("url","") if isinstance(cu, dict) else "") or c.get("link","") or item.get("link","")
-            if not title:
-                continue
+            if not title: continue
             words = set(title.lower().split())
             sent  = "positive" if len(words & POS) > len(words & NEG) else ("negative" if len(words & NEG) > len(words & POS) else "neutral")
             result.append({"title": title.strip(), "link": link, "source": "Yahoo", "published": "", "sentiment": sent})
@@ -267,7 +349,7 @@ def fetch_enrich(symbol: str) -> dict:
             out["quarterly"] = {}
 
         fwd = {}
-        for attr, prefix in (("earnings_estimate","next"), ("revenue_estimate","next")):
+        for attr in ("earnings_estimate", "revenue_estimate"):
             try:
                 df = getattr(ticker, attr)
                 if df is not None and not df.empty:
