@@ -18,11 +18,6 @@ export const TICKERS = [
   "LMT", "RTX", "CAT",
   // Israeli on NASDAQ
   "CHKP", "NICE", "MNDY", "WIX", "GLBE", "CYBR",
-  // TASE-only (cached + fail-fast yfinance fallback — see yf_fetch.py)
-  "POLI.TA", "LUMI.TA", "DSCT.TA", "MZTF.TA", "FIBI.TA",
-  "HARL.TA", "MGDL.TA", "PHOE.TA", "CLIS.TA",
-  "ICL.TA", "DLEKG.TA", "ENLT.TA", "ELCO.TA",
-  "AZRG.TA", "MLSR.TA", "ALHE.TA", "SHUF.TA",
 ] as const;
 
 export type Ticker = (typeof TICKERS)[number];
