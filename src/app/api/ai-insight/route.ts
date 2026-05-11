@@ -18,28 +18,37 @@ export async function POST(req: NextRequest) {
 
     const {
       symbol, name = "", sector = "",
+      price, dayChange, fiftyTwoWeekHigh, fiftyTwoWeekLow,
       peRatio, forwardPE, earningsGrowth, revenueGrowth,
-      operatingMargin, roe, debtToEquity,
+      operatingMargin, roe, debtToEquity, score,
       forecasts, lastEarnings, news = [],
     } = stock;
 
+    // Price / momentum context
+    const priceLines: string[] = [];
+    if (price != null) priceLines.push(`Current price: $${price.toFixed(2)}`);
+    if (dayChange != null) priceLines.push(`Day change: ${dayChange >= 0 ? "+" : ""}${dayChange.toFixed(2)}%`);
+    if (fiftyTwoWeekLow != null && fiftyTwoWeekHigh != null && price != null) {
+      const pct = ((price - fiftyTwoWeekLow) / (fiftyTwoWeekHigh - fiftyTwoWeekLow) * 100).toFixed(0);
+      priceLines.push(`52-week range: $${fiftyTwoWeekLow.toFixed(2)}–$${fiftyTwoWeekHigh.toFixed(2)} (currently at ${pct}% of range)`);
+    }
+    if (score != null) priceLines.push(`Composite score: ${score.toFixed(1)}/100`);
+
     const metrics: string[] = [];
-    if (peRatio   != null) metrics.push(`Trailing P/E: ${peRatio.toFixed(1)}`);
-    if (forwardPE != null) metrics.push(`Forward P/E: ${forwardPE.toFixed(1)}`);
+    if (peRatio        != null) metrics.push(`Trailing P/E: ${peRatio.toFixed(1)}`);
+    if (forwardPE      != null) metrics.push(`Forward P/E: ${forwardPE.toFixed(1)}`);
     if (earningsGrowth != null) metrics.push(`EPS YoY: ${(earningsGrowth*100).toFixed(0)}%`);
     if (revenueGrowth  != null) metrics.push(`Revenue YoY: ${(revenueGrowth*100).toFixed(0)}%`);
     if (operatingMargin!= null) metrics.push(`Op Margin: ${(operatingMargin*100).toFixed(0)}%`);
     if (roe            != null) metrics.push(`ROE: ${(roe*100).toFixed(0)}%`);
     if (debtToEquity   != null) metrics.push(`D/E: ${debtToEquity.toFixed(0)}`);
 
-    // Forward estimates
     const fwd: string[] = [];
     if (forecasts?.nextQEps     != null) fwd.push(`Fwd EPS (Q): $${forecasts.nextQEps.toFixed(2)}`);
     if (forecasts?.nextQRevenue != null) fwd.push(`Fwd Rev (Q): $${(forecasts.nextQRevenue/1e9).toFixed(1)}B`);
     if (forecasts?.nextYEps     != null) fwd.push(`Fwd EPS (Y): $${forecasts.nextYEps.toFixed(2)}`);
     if (forecasts?.nextYRevenue != null) fwd.push(`Fwd Rev (Y): $${(forecasts.nextYRevenue/1e9).toFixed(1)}B`);
 
-    // Last earnings
     let earningsText = "";
     if (lastEarnings?.epsActual != null && lastEarnings?.epsEstimate != null) {
       const beat = lastEarnings.beat ? "BEAT" : "MISSED";
@@ -55,7 +64,8 @@ export async function POST(req: NextRequest) {
 
     const userMsg = [
       `Stock: ${symbol} (${name}) — Sector: ${sector}`,
-      `Metrics: ${metrics.join(", ") || "limited data"}`,
+      priceLines.length ? `Price data: ${priceLines.join(" | ")}` : "",
+      `Fundamentals: ${metrics.join(", ") || "limited data"}`,
       fwd.length ? `Forward estimates: ${fwd.join(", ")}` : "",
       earningsText,
       newsText,
@@ -63,21 +73,21 @@ export async function POST(req: NextRequest) {
     ].filter(Boolean).join("\n");
 
     const systemMsg = [
-      "You are a financial data analyst writing concise stock analyses.",
-      "Output MUST use this EXACT three-section structure with the emoji headers:\n",
-      "📈 Technical / Momentum:",
-      "<2 sentences describing the 30-day price trend (upward/downward/sideways), approximate range, where current price sits, and momentum direction. Use observational language only.>\n",
-      "📊 Forward Valuation:",
-      "<2 sentences comparing Trailing P/E to Forward P/E and any forward EPS/revenue estimates. Explain what analysts expect. Connect to news if relevant.>\n",
-      "🔥 Hot Themes / Growth Drivers:",
-      "<2 sentences identifying sector tailwinds or industry trends the company is currently positioned within. Describe POSITIONING, not predictions.>\n",
+      "You are a financial data analyst writing concise, data-driven stock analyses based ONLY on the numbers provided.",
+      "Output MUST use this EXACT three-section structure:\n",
+      "📈 Price & Momentum:",
+      "<2 sentences. Use the exact price, day-change %, and 52-week range position provided. State whether the stock is near its 52-week high or low, and describe the day's movement. Be specific with numbers.>\n",
+      "📊 Valuation & Estimates:",
+      "<2 sentences. Compare Trailing P/E to Forward P/E — if Forward P/E is lower, earnings growth is expected. Reference any analyst estimates or last earnings beat/miss if provided.>\n",
+      "🔥 Fundamentals Snapshot:",
+      "<2 sentences. Highlight the strongest or weakest fundamental metric (EPS growth, revenue growth, operating margin, ROE). Tie it to the composite score if available.>\n",
       "STRICT RULES:",
-      "- NEVER use 'buy', 'sell', 'should', 'recommend', 'target price'",
+      "- Use ONLY the data provided — do not invent numbers",
+      "- NEVER use 'buy', 'sell', 'should', 'recommend'",
       "- NEVER predict future prices",
-      "- Use observational language only ('the data shows', 'metrics suggest', 'the trend has been')",
+      "- Be specific: mention actual numbers from the data",
       "- Maximum 2 sentences per section",
-      "- English output",
-      "- Always include all three emoji-prefixed section headers exactly as shown",
+      "- English only",
     ].join("\n");
 
     const response = await client.chat.completions.create({

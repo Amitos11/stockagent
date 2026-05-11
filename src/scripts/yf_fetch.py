@@ -273,9 +273,39 @@ def stream_parallel(symbols: list, max_workers: int = 4) -> None:
             time.sleep(0.5)
 
 
-# ── candles (yfinance chart API — works without crumb) ─────────────────────────
+# ── candles ────────────────────────────────────────────────────────────────────
 
 def fetch_candles(symbol: str) -> list:
+    # ── FMP primary ────────────────────────────────────────────────────────────
+    if FMP_KEY:
+        try:
+            from datetime import date, timedelta
+            end   = date.today().isoformat()
+            start = (date.today() - timedelta(days=45)).isoformat()
+            r = _session.get(
+                "https://financialmodelingprep.com/stable/historical-price-eod/light",
+                params={"symbol": symbol, "from": start, "to": end, "apikey": FMP_KEY},
+                timeout=15,
+            )
+            if r.ok:
+                data = r.json() or []
+                data = list(reversed(data))  # FMP: newest-first → reverse
+                candles = []
+                for d in data:
+                    o = sf(d.get("open")); h = sf(d.get("high"))
+                    lo = sf(d.get("low")); c = sf(d.get("close"))
+                    if all(v is not None for v in [o, h, lo, c]):
+                        candles.append({
+                            "time":  d.get("date","")[:10],
+                            "open":  round(o, 4), "high": round(h, 4),
+                            "low":   round(lo, 4), "close": round(c, 4),
+                        })
+                if candles:
+                    return candles
+        except Exception as e:
+            print(f"[fmp candles] {e}", file=sys.stderr, flush=True)
+
+    # ── yfinance fallback ──────────────────────────────────────────────────────
     try:
         hist = yf.Ticker(symbol).history(period="1mo")
         if hist.empty:
