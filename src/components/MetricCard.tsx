@@ -51,7 +51,7 @@ const valueColorMap = {
 export function MetricCard({ label, value, sub, accent = "default", icon }: MetricCardProps) {
   return (
     <div
-      className="rounded-2xl p-5 flex flex-col gap-2 min-w-0 transition-all duration-200"
+      className="card-3d rounded-2xl p-5 flex flex-col gap-2 min-w-0"
       style={{
         background: "rgba(15, 23, 42, 0.6)",
         backdropFilter: "blur(20px)",

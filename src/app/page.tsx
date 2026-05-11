@@ -16,6 +16,14 @@ import { TICKERS } from "@/lib/tickers";
 
 type Tab = "top10" | "all" | "value";
 
+const BUFFETT_QUOTES = [
+  { quote: "Price is what you pay. Value is what you get.", context: "Focus on intrinsic value, not noise." },
+  { quote: "It's far better to buy a wonderful company at a fair price than a fair company at a wonderful price.", context: "Quality beats cheap." },
+  { quote: "Our favorite holding period is forever.", context: "Think long-term." },
+  { quote: "Be fearful when others are greedy, and greedy when others are fearful.", context: "Contrarian edge." },
+  { quote: "Risk comes from not knowing what you're doing.", context: "Do your homework." },
+];
+
 export default function DashboardPage() {
   const [results, setResults] = useState<ScanResult | null>(null);
   const [partialRows, setPartialRows] = useState<StockRow[]>([]);
@@ -130,6 +138,7 @@ export default function DashboardPage() {
     URL.revokeObjectURL(url);
   }, [results]);
 
+  const buffettQuote = BUFFETT_QUOTES[new Date().getDay() % BUFFETT_QUOTES.length];
   const valueCount  = results?.valid.filter((r) => r.isValuePlay).length ?? 0;
   const leader      = results?.top10[0];
   const avgScore    = results?.valid.length
@@ -241,6 +250,24 @@ export default function DashboardPage() {
                 cachedSymbols={results?.allRows.map((r) => r.symbol) ?? []}
               />
             </div>
+          </div>
+        </div>
+
+        {/* ── Buffett Banner ─────────────────────────────────────────────── */}
+        <div className="buffett-banner rounded-2xl px-5 py-4 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-2xl font-bold"
+            style={{ background: "linear-gradient(135deg, #166534 0%, #14532d 100%)", boxShadow: "0 0 18px rgba(34,197,94,0.3)", fontFamily: "serif" }}>
+            W
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-slate-200 italic leading-snug">
+              &ldquo;{buffettQuote.quote}&rdquo;
+            </p>
+            <p className="text-xs text-emerald-500 mt-0.5 font-semibold">Warren Buffett · {buffettQuote.context}</p>
+          </div>
+          <div className="hidden md:flex flex-col items-end gap-1 flex-shrink-0">
+            <span className="text-[10px] text-slate-600 uppercase tracking-wider">Buffett Filter</span>
+            <span className="text-xs text-emerald-400 font-mono font-semibold">P/E &lt;20 · D/E &lt;50</span>
           </div>
         </div>
 
@@ -510,7 +537,7 @@ function Top10Card({ stock, rank, onClick }: { stock: StockRow; rank: number; on
   return (
     <button
       onClick={onClick}
-      className="glass glass-hover rounded-2xl p-5 text-left cursor-pointer w-full group"
+      className="glass card-3d rounded-2xl p-5 text-left cursor-pointer w-full group"
     >
       <div className="flex items-start justify-between gap-3 mb-4">
         <div className="flex items-start gap-3">
