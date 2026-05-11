@@ -8,39 +8,78 @@ interface MetricCardProps {
   icon?: React.ReactNode;
 }
 
-const accentMap = {
-  default: "border-l-slate-400",
-  gold: "border-l-amber-400",
-  green: "border-l-emerald-400",
-  red: "border-l-red-400",
-  purple: "border-l-violet-400",
+const glowMap = {
+  default: "",
+  gold:    "0 0 20px rgba(245,158,11,0.15)",
+  green:   "0 0 20px rgba(34,197,94,0.15)",
+  red:     "0 0 20px rgba(239,68,68,0.15)",
+  purple:  "0 0 20px rgba(139,92,246,0.15)",
 };
 
-const valueAccentMap = {
-  default: "text-slate-900",
-  gold: "text-amber-600",
-  green: "text-emerald-600",
-  red: "text-red-600",
-  purple: "text-violet-600",
+const borderMap = {
+  default: "rgba(255,255,255,0.07)",
+  gold:    "rgba(245,158,11,0.25)",
+  green:   "rgba(34,197,94,0.25)",
+  red:     "rgba(239,68,68,0.25)",
+  purple:  "rgba(139,92,246,0.25)",
+};
+
+const iconBgMap = {
+  default: "rgba(255,255,255,0.06)",
+  gold:    "rgba(245,158,11,0.12)",
+  green:   "rgba(34,197,94,0.12)",
+  red:     "rgba(239,68,68,0.12)",
+  purple:  "rgba(139,92,246,0.12)",
+};
+
+const iconColorMap = {
+  default: "#64748b",
+  gold:    "#f59e0b",
+  green:   "#22c55e",
+  red:     "#ef4444",
+  purple:  "#8b5cf6",
+};
+
+const valueColorMap = {
+  default: "#f8fafc",
+  gold:    "#fbbf24",
+  green:   "#4ade80",
+  red:     "#f87171",
+  purple:  "#a78bfa",
 };
 
 export function MetricCard({ label, value, sub, accent = "default", icon }: MetricCardProps) {
   return (
     <div
-      className={`
-        bg-white rounded-xl border border-slate-100 shadow-sm
-        border-l-4 ${accentMap[accent]}
-        p-5 flex flex-col gap-1 min-w-0
-      `}
+      className="rounded-2xl p-5 flex flex-col gap-2 min-w-0 transition-all duration-200"
+      style={{
+        background: "rgba(15, 23, 42, 0.6)",
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
+        border: `1px solid ${borderMap[accent]}`,
+        boxShadow: glowMap[accent],
+      }}
     >
       <div className="flex items-center gap-2">
-        {icon && <span className="text-slate-400 flex-shrink-0">{icon}</span>}
-        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider truncate">{label}</span>
+        {icon && (
+          <span
+            className="flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center"
+            style={{ background: iconBgMap[accent], color: iconColorMap[accent] }}
+          >
+            {icon}
+          </span>
+        )}
+        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider truncate">
+          {label}
+        </span>
       </div>
-      <div className={`text-2xl font-bold tabular-nums ${valueAccentMap[accent]} truncate`}>
+      <div
+        className="text-2xl font-bold tabular-nums truncate"
+        style={{ color: valueColorMap[accent], fontFamily: "IBM Plex Mono, monospace" }}
+      >
         {value}
       </div>
-      {sub && <div className="text-xs text-slate-400 truncate">{sub}</div>}
+      {sub && <div className="text-xs text-slate-600 truncate">{sub}</div>}
     </div>
   );
 }

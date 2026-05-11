@@ -48,7 +48,6 @@ export default function DashboardPage() {
     es.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data) as { type: string; data?: unknown };
-
         const d = (msg.data ?? {}) as Record<string, unknown>;
 
         if (msg.type === "start") {
@@ -81,13 +80,11 @@ export default function DashboardPage() {
           setScanning(false);
           setProgress(0);
         }
-      } catch {
-        // ignore parse errors
-      }
+      } catch { /* ignore */ }
     };
 
     es.onerror = () => {
-      if (done) return; // natural close after complete — ignore
+      if (done) return;
       es.close();
       setScanError("Connection to scan stream lost. Please try again.");
       setScanning(false);
@@ -99,7 +96,6 @@ export default function DashboardPage() {
     setSelectedStock(stock);
   }, []);
 
-  // If the stock was already scanned, open it directly from cache instead of re-fetching
   const handleSearchResult = useCallback((stock: StockRow) => {
     const cached = results?.allRows.find((r) => r.symbol === stock.symbol);
     setSelectedStock(cached ?? stock);
@@ -108,27 +104,19 @@ export default function DashboardPage() {
   const downloadCSV = useCallback(() => {
     if (!results) return;
     const headers = [
-      "Rank", "Symbol", "Name", "Sector", "Score",
-      "Price", "P/E", "Forward P/E", "EPS YoY", "Rev YoY",
-      "Op Margin", "ROE", "D/E", "Mkt Cap", "Value Play", "Next Earnings",
+      "Rank","Symbol","Name","Sector","Score",
+      "Price","P/E","Forward P/E","EPS YoY","Rev YoY",
+      "Op Margin","ROE","D/E","Mkt Cap","Value Play","Next Earnings",
     ];
     const rows = results.valid.map((r) => [
-      r.rank ?? "",
-      r.symbol,
-      r.name ?? "",
-      r.sector ?? "",
+      r.rank ?? "", r.symbol, r.name ?? "", r.sector ?? "",
       (r.score ?? 0).toFixed(1),
       fmtPrice(r.price, r.symbol, r.currency),
-      fmtNum(r.peRatio, 1),
-      fmtNum(r.forwardPE, 1),
-      fmtPct(r.earningsGrowth),
-      fmtPct(r.revenueGrowth),
-      fmtPct(r.operatingMargin),
-      fmtPct(r.roe),
-      fmtNum(r.debtToEquity, 1),
-      r.marketCapDisplay ?? "",
-      r.isValuePlay ? "Yes" : "No",
-      r.nextEarnings ?? "",
+      fmtNum(r.peRatio, 1), fmtNum(r.forwardPE, 1),
+      fmtPct(r.earningsGrowth), fmtPct(r.revenueGrowth),
+      fmtPct(r.operatingMargin), fmtPct(r.roe),
+      fmtNum(r.debtToEquity, 1), r.marketCapDisplay ?? "",
+      r.isValuePlay ? "Yes" : "No", r.nextEarnings ?? "",
     ]);
     const csv = [headers, ...rows]
       .map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
@@ -137,7 +125,7 @@ export default function DashboardPage() {
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
     a.href = url;
-    a.download = `discovery-agent-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `stockagent-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }, [results]);
@@ -148,38 +136,45 @@ export default function DashboardPage() {
     ? results.valid.reduce((s, r) => s + (r.score ?? 0), 0) / results.valid.length
     : 0;
   const greenCount  = results?.valid.filter((r) => (r.score ?? 0) >= 60).length ?? 0;
-  const failedCount = results
-    ? results.allRows.length - results.valid.length
-    : 0;
+  const failedCount = results ? results.allRows.length - results.valid.length : 0;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-mesh text-slate-100">
 
-      {/* ── Navbar ─────────────────────────────────────────────── */}
-      <nav className="bg-white border-b border-slate-100 sticky top-0 z-30 shadow-sm">
+      {/* ── Navbar ─────────────────────────────────────────────────────── */}
+      <nav className="sticky top-0 z-30 glass border-b border-white/[0.06]">
         <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-amber-400 flex items-center justify-center flex-shrink-0">
-              <BarChart3 size={14} className="text-white" />
+
+          {/* Logo */}
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+              style={{ background: "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)", boxShadow: "0 0 16px rgba(34,197,94,0.4)" }}>
+              <BarChart3 size={15} className="text-white" />
             </div>
             <div>
-              <span className="font-bold text-slate-900 text-sm tracking-tight">Discovery Agent</span>
-              <span className="text-xs text-slate-400 ml-1.5 hidden sm:inline">Stock Scanner</span>
+              <span className="font-bold text-white text-sm tracking-tight">StockAgent</span>
+              <span className="text-xs text-slate-500 ml-2 hidden sm:inline">Market Scanner</span>
             </div>
           </div>
 
-          <div className="hidden md:flex items-center gap-2 text-xs text-slate-400">
-            <span>{TICKERS.length} tickers · US + IL</span>
+          {/* Center info */}
+          <div className="hidden md:flex items-center gap-2 text-xs text-slate-500">
+            <span className="px-2 py-0.5 rounded-md bg-white/5 border border-white/[0.06]">
+              {TICKERS.length} tickers · US + IL
+            </span>
             {results?.scannedAt && (
-              <><span>·</span><span suppressHydrationWarning>Last scan: {new Date(results.scannedAt).toLocaleTimeString()}</span></>
+              <span suppressHydrationWarning className="px-2 py-0.5 rounded-md bg-white/5 border border-white/[0.06]">
+                Last scan: {new Date(results.scannedAt).toLocaleTimeString()}
+              </span>
             )}
           </div>
 
+          {/* Actions */}
           <div className="flex items-center gap-2">
             {results && (
               <button
                 onClick={downloadCSV}
-                className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-all cursor-pointer"
+                className="hidden sm:flex items-center gap-1.5 text-xs text-slate-400 hover:text-white border border-white/[0.08] hover:border-white/20 px-3 py-1.5 rounded-lg transition-all cursor-pointer glass-hover"
               >
                 <Download size={13} /> Export CSV
               </button>
@@ -187,49 +182,57 @@ export default function DashboardPage() {
             <button
               onClick={runScan}
               disabled={scanning}
-              className="flex items-center gap-2 bg-amber-400 hover:bg-amber-500 disabled:opacity-70 text-white font-semibold text-sm px-4 py-2 rounded-lg transition-all cursor-pointer disabled:cursor-not-allowed shadow-sm"
+              className="btn-scan flex items-center gap-2 text-white font-semibold text-sm px-4 py-2 rounded-lg cursor-pointer"
             >
-              {scanning ? <RefreshCw size={15} className="animate-spin" /> : <ScanLine size={15} />}
               {scanning
-                ? receivedCount > 0
-                  ? `${receivedCount}/${TICKERS.length}`
-                  : "Scanning…"
+                ? <RefreshCw size={15} className="animate-spin" />
+                : <ScanLine size={15} />}
+              {scanning
+                ? receivedCount > 0 ? `${receivedCount}/${TICKERS.length}` : "Scanning…"
                 : "Run Scan"}
             </button>
           </div>
         </div>
 
+        {/* Progress bar */}
         {scanning && (
-          <div className="h-0.5 bg-slate-100 overflow-hidden">
-            <div className="h-full bg-amber-400 transition-all duration-500" style={{ width: `${progress}%` }} />
+          <div className="h-[2px] bg-white/5 overflow-hidden">
+            <div
+              className="h-full progress-glow transition-all duration-500"
+              style={{ width: `${progress}%` }}
+            />
           </div>
         )}
       </nav>
 
-      <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+      <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-6 space-y-5">
 
-        {/* ── Controls ───────────────────────────────────────────── */}
-        <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+        {/* ── Controls ───────────────────────────────────────────────────── */}
+        <div className="glass rounded-2xl p-5">
           <div className="flex flex-wrap items-start gap-6">
             <div className="flex-1 min-w-[280px]">
-              <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                <Layers size={14} className="text-slate-400" />
+              <h2 className="text-xs font-semibold text-slate-400 mb-4 flex items-center gap-2 uppercase tracking-wider">
+                <Layers size={13} className="text-slate-500" />
                 Scoring Weights
               </h2>
-              <div className="grid grid-cols-3 gap-4">
-                <WeightSlider label="Growth"        value={wGrowth} onChange={setWGrowth} color="text-blue-600"   trackColor="#60a5fa" />
-                <WeightSlider label="Profitability" value={wProfit} onChange={setWProfit} color="text-violet-600" trackColor="#a78bfa" />
-                <WeightSlider label="Valuation"     value={wValue}  onChange={setWValue}  color="text-amber-600"  trackColor="#fbbf24" />
+              <div className="grid grid-cols-3 gap-5">
+                <WeightSlider label="Growth"        value={wGrowth} onChange={setWGrowth} color="text-emerald-400"  trackColor="#22c55e" />
+                <WeightSlider label="Profitability" value={wProfit} onChange={setWProfit} color="text-blue-400"     trackColor="#60a5fa" />
+                <WeightSlider label="Valuation"     value={wValue}  onChange={setWValue}  color="text-violet-400"   trackColor="#a78bfa" />
               </div>
             </div>
             <div className="flex items-center gap-3 pt-1">
-              <div className={`text-sm font-semibold px-3 py-1.5 rounded-lg ${totalWeight === 100 ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
-                Total: {totalWeight}% {totalWeight === 100 ? "✓" : "≠100"}
+              <div className={`text-sm font-semibold px-3 py-1.5 rounded-lg border ${
+                totalWeight === 100
+                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                  : "bg-red-500/10 text-red-400 border-red-500/20"
+              }`}>
+                {totalWeight}% {totalWeight === 100 ? "✓" : "≠ 100"}
               </div>
             </div>
             <div className="flex-1 min-w-[200px]">
-              <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                <Search size={14} className="text-slate-400" />
+              <h2 className="text-xs font-semibold text-slate-400 mb-4 flex items-center gap-2 uppercase tracking-wider">
+                <Search size={13} className="text-slate-500" />
                 Free-Form Analysis
               </h2>
               <StockSearch
@@ -241,44 +244,45 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* ── Error ──────────────────────────────────────────────── */}
+        {/* ── Error ──────────────────────────────────────────────────────── */}
         {scanError && (
-          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 flex items-center gap-2">
+          <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm text-red-400 flex items-center gap-2">
             <AlertCircle size={14} /> {scanError}
           </div>
         )}
 
-        {/* ── Empty state ────────────────────────────────────────── */}
+        {/* ── Empty state ────────────────────────────────────────────────── */}
         {!results && !scanning && (
-          <div className="bg-white rounded-xl border border-slate-100 shadow-sm py-20 flex flex-col items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-amber-50 flex items-center justify-center">
-              <ScanLine size={22} className="text-amber-400" />
+          <div className="glass rounded-2xl py-24 flex flex-col items-center gap-5">
+            <div className="w-16 h-16 rounded-2xl flex items-center justify-center"
+              style={{ background: "linear-gradient(135deg, rgba(34,197,94,0.15) 0%, rgba(34,197,94,0.05) 100%)", border: "1px solid rgba(34,197,94,0.2)" }}>
+              <ScanLine size={28} className="text-emerald-400" />
             </div>
             <div className="text-center">
-              <div className="font-semibold text-slate-800 text-lg">Ready to scan</div>
-              <div className="text-sm text-slate-400 mt-1">
+              <div className="font-bold text-white text-xl tracking-tight">Ready to Scan</div>
+              <div className="text-sm text-slate-500 mt-1.5">
                 {TICKERS.length} tickers · US mega-cap, semis, software, healthcare, Israeli NASDAQ &amp; TASE
               </div>
             </div>
             <button
               onClick={runScan}
-              className="mt-2 flex items-center gap-2 bg-amber-400 hover:bg-amber-500 text-white font-semibold px-6 py-3 rounded-xl text-sm transition-all cursor-pointer shadow-sm"
+              className="btn-scan mt-1 flex items-center gap-2 text-white font-semibold px-8 py-3 rounded-xl text-sm cursor-pointer"
             >
               <ScanLine size={16} /> Start Scan <ChevronRight size={16} />
             </button>
-            <p className="text-xs text-slate-400">~30–60 seconds · parallel fetch · results stream in live</p>
+            <p className="text-xs text-slate-600">~30–60 seconds · parallel fetch · results stream live</p>
           </div>
         )}
 
-        {/* ── Live partial results while scanning ────────────────── */}
+        {/* ── Live partial results ────────────────────────────────────────── */}
         {scanning && partialRows.length > 0 && (
           <div className="space-y-3">
             <div className="flex items-center gap-3 px-1">
-              <div className="flex items-center gap-1.5 text-sm font-medium text-slate-600">
-                <RefreshCw size={13} className="animate-spin text-amber-500" />
-                Live results — {receivedCount} / {TICKERS.length} fetched
+              <div className="flex items-center gap-2 text-sm font-medium text-slate-300">
+                <RefreshCw size={13} className="animate-spin text-emerald-400" />
+                Live results — <span className="text-emerald-400 font-mono">{receivedCount}</span> / {TICKERS.length} fetched
               </div>
-              <span className="text-xs text-slate-400">Table updates in real-time</span>
+              <span className="text-xs text-slate-600">Table updates in real-time</span>
             </div>
             <RankedTable
               rows={partialRows.filter((r) => r.score != null).slice(0, 20)}
@@ -289,43 +293,47 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── Skeleton (only while no partial rows yet) ──────────── */}
+        {/* ── Skeleton ───────────────────────────────────────────────────── */}
         {scanning && partialRows.length === 0 && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
               {[...Array(5)].map((_, i) => (
-                <div key={i} className="bg-white rounded-xl border border-slate-100 p-5 h-24 skeleton" />
+                <div key={i} className="rounded-xl h-24 skeleton" />
               ))}
             </div>
-            <div className="bg-white rounded-xl border border-slate-100 p-5 h-64 skeleton" />
+            <div className="rounded-xl h-64 skeleton" />
           </div>
         )}
 
-        {/* ── Results ────────────────────────────────────────────── */}
+        {/* ── Results ────────────────────────────────────────────────────── */}
         {results && !scanning && (
           <>
             {/* Metric cards */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-              <MetricCard label="Scanned"      value={`${results.valid.length} / ${results.allRows.length}`} sub={`${failedCount} no data`}        accent="default" icon={<BarChart3 size={14} />} />
-              <MetricCard label="Avg Score"    value={avgScore.toFixed(1)}                                   sub="out of 100"                       accent="purple"  icon={<Target size={14} />} />
-              <MetricCard label="Strong (60+)" value={greenCount}                                            sub="high-conviction"                  accent="green"   icon={<TrendingUp size={14} />} />
-              <MetricCard label="Value Plays"  value={valueCount}                                            sub="P/E < 20, D/E < 50"               accent="gold"    icon={<BarChart3 size={14} />} />
+              <MetricCard label="Scanned"      value={`${results.valid.length}/${results.allRows.length}`} sub={`${failedCount} no data`}   accent="default" icon={<BarChart3 size={14} />} />
+              <MetricCard label="Avg Score"    value={avgScore.toFixed(1)}                                 sub="out of 100"                  accent="purple"  icon={<Target size={14} />} />
+              <MetricCard label="Strong 60+"   value={greenCount}                                          sub="high-conviction"             accent="green"   icon={<TrendingUp size={14} />} />
+              <MetricCard label="Value Plays"  value={valueCount}                                          sub="P/E < 20, D/E < 50"          accent="gold"    icon={<BarChart3 size={14} />} />
               {leader && (
-                <MetricCard label="Leader" value={leader.symbol} sub={`Score ${(leader.score ?? 0).toFixed(1)}`} accent="gold" icon={<TrendingUp size={14} />} />
+                <MetricCard label="Leader" value={leader.symbol} sub={`Score ${(leader.score ?? 0).toFixed(1)}`} accent="green" icon={<TrendingUp size={14} />} />
               )}
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-1 bg-white border border-slate-100 shadow-sm rounded-xl p-1 w-fit">
+            <div className="flex gap-1 glass rounded-xl p-1 w-fit">
               {(["top10", "all", "value"] as Tab[]).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer ${
                     activeTab === tab
-                      ? "bg-amber-400 text-white shadow-sm"
-                      : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+                      ? "text-white font-semibold"
+                      : "text-slate-500 hover:text-slate-300"
                   }`}
+                  style={activeTab === tab ? {
+                    background: "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)",
+                    boxShadow: "0 0 16px rgba(34,197,94,0.3)",
+                  } : {}}
                 >
                   {tab === "top10" ? "Top 10"
                     : tab === "all"   ? `All Ranked (${results.valid.length})`
@@ -334,18 +342,15 @@ export default function DashboardPage() {
               ))}
             </div>
 
-            {/* ── TOP 10 ──────────────────────────────────────────── */}
+            {/* TOP 10 */}
             {activeTab === "top10" && (
               <div className="space-y-5">
-
-                {/* Ranked table — primary view */}
                 <RankedTable rows={results.top10} onSelect={handleSelectStock} title="Top 10 — Ranked by Score" />
 
-                {/* Detail cards grid */}
                 <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <h3 className="text-sm font-semibold text-slate-700">Detail View</h3>
-                    <span className="text-xs text-slate-400">Click any card to open full analysis</span>
+                  <div className="flex items-center gap-2 mb-3 px-1">
+                    <h3 className="text-sm font-semibold text-slate-300">Detail Cards</h3>
+                    <span className="text-xs text-slate-600">Click any card for full analysis</span>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {results.top10.map((stock, i) => (
@@ -354,7 +359,6 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Ranks 11+ in compact table — cap reds (score<40) to top 5 */}
                 {results.valid.length > 10 && (() => {
                   const rest = results.valid.slice(10);
                   const nonRed = rest.filter((r) => (r.score ?? 0) >= 40);
@@ -365,7 +369,7 @@ export default function DashboardPage() {
                     <RankedTable
                       rows={shown}
                       onSelect={handleSelectStock}
-                      title={`Ranks 11–${10 + shown.length} — All Other Stocks${hidden > 0 ? ` (${hidden} weak hidden)` : ""}`}
+                      title={`Ranks 11–${10 + shown.length}${hidden > 0 ? ` (${hidden} weak hidden)` : ""}`}
                       compact
                     />
                   );
@@ -373,7 +377,6 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* ── ALL / VALUE ─────────────────────────────────────── */}
             {(activeTab === "all" || activeTab === "value") && (
               <ScannerTable
                 rows={results.valid}
@@ -384,8 +387,8 @@ export default function DashboardPage() {
           </>
         )}
 
-        <footer className="text-center text-xs text-slate-400 pb-4 pt-2">
-          ⚠️ Automated analysis only. NOT investment advice. Data via Yahoo Finance.
+        <footer className="text-center text-xs text-slate-700 pb-4 pt-2">
+          ⚠️ Automated analysis only. NOT investment advice. Data via Yahoo Finance &amp; FMP.
         </footer>
       </div>
 
@@ -394,7 +397,7 @@ export default function DashboardPage() {
   );
 }
 
-// ─── Ranked Table ─────────────────────────────────────────────────────────────
+// ─── Ranked Table ──────────────────────────────────────────────────────────────
 
 function RankedTable({
   rows, onSelect, title, compact = false,
@@ -405,46 +408,46 @@ function RankedTable({
   compact?: boolean;
 }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
-      <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
-        <span className="text-xs text-slate-400">{rows.length} stocks</span>
+    <div className="glass rounded-2xl overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-white/[0.06] flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-white">{title}</h3>
+        <span className="text-xs text-slate-500 font-mono">{rows.length} stocks</span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[860px]">
-          <thead className="bg-slate-50/80 border-b border-slate-100">
-            <tr>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-10">#</th>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Symbol</th>
-              {!compact && <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Name / Sector</th>}
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Score</th>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Price</th>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Day %</th>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">P/E</th>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Fwd P/E</th>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">EPS YoY</th>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Rev YoY</th>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Op Margin</th>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Mkt Cap</th>
-              {!compact && <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Insight</th>}
+          <thead>
+            <tr className="border-b border-white/[0.04]">
+              <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider w-10">#</th>
+              <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">Symbol</th>
+              {!compact && <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">Name / Sector</th>}
+              <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">Score</th>
+              <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">Price</th>
+              <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">Day %</th>
+              <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">P/E</th>
+              <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">Fwd P/E</th>
+              <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">EPS YoY</th>
+              <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">Rev YoY</th>
+              <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">Op Margin</th>
+              <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">Mkt Cap</th>
+              {!compact && <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">Insight</th>}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-50">
+          <tbody>
             {rows.map((row, i) => {
-              const rank = row.rank ?? (i + 1);
+              const rank  = row.rank ?? (i + 1);
               const score = row.score ?? 0;
               return (
                 <tr
                   key={row.symbol}
                   onClick={() => onSelect(row)}
-                  className="hover:bg-amber-50/50 cursor-pointer transition-colors group"
+                  className="table-row-hover cursor-pointer border-b border-white/[0.03] last:border-0"
                 >
                   <td className="px-4 py-3">
-                    <span className="text-xs font-bold text-slate-400 tabular-nums">{rank}</span>
+                    <span className="text-xs font-bold text-slate-600 tabular-nums">{rank}</span>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="font-bold text-sm text-slate-900 group-hover:text-amber-700 transition-colors">
+                      <span className="font-bold text-sm text-white group-hover:text-emerald-400 transition-colors">
                         {row.symbol}
                       </span>
                       {row.isValuePlay && <ValueBadge isValuePlay />}
@@ -452,38 +455,38 @@ function RankedTable({
                   </td>
                   {!compact && (
                     <td className="px-4 py-3">
-                      <div className="text-sm text-slate-600 max-w-[160px] truncate">{row.name}</div>
-                      <div className="text-xs text-slate-400 truncate">{row.sector}</div>
+                      <div className="text-sm text-slate-300 max-w-[160px] truncate">{row.name}</div>
+                      <div className="text-xs text-slate-600 truncate">{row.sector}</div>
                     </td>
                   )}
                   <td className="px-4 py-3">
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-1.5">
                       <ScoreBadge score={score} size="sm" />
-                      <div className="h-1 w-16 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-1 w-16 bg-white/5 rounded-full overflow-hidden">
                         <div
-                          className={`h-full rounded-full ${score >= 60 ? "bg-emerald-400" : score >= 40 ? "bg-amber-400" : "bg-red-400"}`}
+                          className={`h-full rounded-full ${score >= 60 ? "score-bar-green" : score >= 40 ? "score-bar-amber" : "score-bar-red"}`}
                           style={{ width: `${Math.min(score, 100)}%` }}
                         />
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-sm font-medium text-slate-900 tabular-nums whitespace-nowrap">
+                  <td className="px-4 py-3 text-sm font-semibold text-white tabular-nums whitespace-nowrap">
                     {fmtPrice(row.price, row.symbol, row.currency)}
                   </td>
                   <td className="px-4 py-3"><DayChangeBadge value={row.dayChange} /></td>
-                  <td className="px-4 py-3 text-sm tabular-nums text-slate-700">{fmtNum(row.peRatio, 1)}</td>
+                  <td className="px-4 py-3 text-sm tabular-nums text-slate-400">{fmtNum(row.peRatio, 1)}</td>
                   <td className="px-4 py-3 text-sm tabular-nums text-slate-500">{fmtNum(row.forwardPE, 1)}</td>
                   <td className="px-4 py-3">
-                    <span className={`text-sm tabular-nums font-medium ${(row.earningsGrowth ?? 0) >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+                    <span className={`text-sm tabular-nums font-medium ${(row.earningsGrowth ?? 0) >= 0 ? "text-emerald-400 text-glow-green" : "text-red-400 text-glow-red"}`}>
                       {fmtPct(row.earningsGrowth)}
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`text-sm tabular-nums font-medium ${(row.revenueGrowth ?? 0) >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+                    <span className={`text-sm tabular-nums font-medium ${(row.revenueGrowth ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                       {fmtPct(row.revenueGrowth)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm tabular-nums text-slate-700">{fmtPct(row.operatingMargin)}</td>
+                  <td className="px-4 py-3 text-sm tabular-nums text-slate-400">{fmtPct(row.operatingMargin)}</td>
                   <td className="px-4 py-3 text-sm tabular-nums text-slate-500 whitespace-nowrap">{row.marketCapDisplay ?? "—"}</td>
                   {!compact && (
                     <td className="px-4 py-3 text-xs text-slate-500 max-w-[200px]">
@@ -503,48 +506,56 @@ function RankedTable({
 // ─── Top 10 Detail Card ────────────────────────────────────────────────────────
 
 function Top10Card({ stock, rank, onClick }: { stock: StockRow; rank: number; onClick: () => void }) {
+  const score = stock.score ?? 0;
   return (
     <button
       onClick={onClick}
-      className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 text-left hover:border-amber-200 hover:shadow-md transition-all cursor-pointer group w-full"
+      className="glass glass-hover rounded-2xl p-5 text-left cursor-pointer w-full group"
     >
-      <div className="flex items-start justify-between gap-3 mb-3">
+      <div className="flex items-start justify-between gap-3 mb-4">
         <div className="flex items-start gap-3">
-          <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-500 flex-shrink-0 group-hover:bg-amber-50 group-hover:text-amber-600 transition-colors">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0 transition-all"
+            style={{
+              background: rank <= 3
+                ? "linear-gradient(135deg, rgba(34,197,94,0.2) 0%, rgba(34,197,94,0.05) 100%)"
+                : "rgba(255,255,255,0.04)",
+              border: rank <= 3 ? "1px solid rgba(34,197,94,0.3)" : "1px solid rgba(255,255,255,0.07)",
+              color: rank <= 3 ? "#22c55e" : "#64748b",
+            }}>
             {rank}
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-bold text-slate-900 group-hover:text-amber-700 transition-colors">{stock.symbol}</span>
+              <span className="font-bold text-white group-hover:text-emerald-400 transition-colors">{stock.symbol}</span>
               {stock.isValuePlay && <ValueBadge isValuePlay />}
               <DayChangeBadge value={stock.dayChange} />
             </div>
             <div className="text-xs text-slate-500 mt-0.5 line-clamp-1">{stock.name}</div>
-            {stock.sector && <div className="text-xs text-slate-400">{stock.sector}</div>}
+            {stock.sector && <div className="text-xs text-slate-600">{stock.sector}</div>}
           </div>
         </div>
-        <ScoreBadge score={stock.score ?? 0} />
+        <ScoreBadge score={score} />
       </div>
 
-      {/* Mini metrics grid */}
-      <div className="grid grid-cols-3 gap-x-4 gap-y-2 mb-3">
-        <MiniMetric label="Price"      value={fmtPrice(stock.price, stock.symbol, stock.currency)} />
-        <MiniMetric label="P/E"        value={fmtNum(stock.peRatio, 1)} />
-        <MiniMetric label="Fwd P/E"    value={fmtNum(stock.forwardPE, 1)} />
-        <MiniMetric label="EPS YoY"    value={fmtPct(stock.earningsGrowth)}   positive={stock.earningsGrowth != null && stock.earningsGrowth > 0} />
-        <MiniMetric label="Rev YoY"    value={fmtPct(stock.revenueGrowth)}    positive={stock.revenueGrowth  != null && stock.revenueGrowth  > 0} />
-        <MiniMetric label="Op Margin"  value={fmtPct(stock.operatingMargin)} />
+      {/* Mini metrics */}
+      <div className="grid grid-cols-3 gap-x-4 gap-y-3 mb-4">
+        <MiniMetric label="Price"     value={fmtPrice(stock.price, stock.symbol, stock.currency)} />
+        <MiniMetric label="P/E"       value={fmtNum(stock.peRatio, 1)} />
+        <MiniMetric label="Fwd P/E"   value={fmtNum(stock.forwardPE, 1)} />
+        <MiniMetric label="EPS YoY"   value={fmtPct(stock.earningsGrowth)}  positive={stock.earningsGrowth != null && stock.earningsGrowth > 0} />
+        <MiniMetric label="Rev YoY"   value={fmtPct(stock.revenueGrowth)}   positive={stock.revenueGrowth  != null && stock.revenueGrowth  > 0} />
+        <MiniMetric label="Op Margin" value={fmtPct(stock.operatingMargin)} />
       </div>
 
-      {/* Forward estimates row */}
+      {/* Forward estimates */}
       {(stock.forecasts?.nextQEps != null || stock.forecasts?.nextYRevenue != null) && (
-        <div className="flex gap-4 py-2 border-t border-slate-50 mb-2">
+        <div className="flex gap-4 py-2.5 border-t border-white/[0.05] mb-3">
           {stock.forecasts?.nextQEps != null && (
             <div className="text-xs">
-              <span className="text-slate-400">Fwd EPS (Q): </span>
-              <span className="font-semibold text-slate-700">${stock.forecasts.nextQEps.toFixed(2)}</span>
+              <span className="text-slate-600">Fwd EPS (Q): </span>
+              <span className="font-semibold text-slate-300">${stock.forecasts.nextQEps.toFixed(2)}</span>
               {stock.forecasts.nextQEpsGrowth != null && (
-                <span className={`ml-1 ${stock.forecasts.nextQEpsGrowth >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                <span className={`ml-1 ${stock.forecasts.nextQEpsGrowth >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                   {fmtPct(stock.forecasts.nextQEpsGrowth)}
                 </span>
               )}
@@ -552,12 +563,12 @@ function Top10Card({ stock, rank, onClick }: { stock: StockRow; rank: number; on
           )}
           {stock.forecasts?.nextQRevenue != null && (
             <div className="text-xs">
-              <span className="text-slate-400">Fwd Rev (Q): </span>
-              <span className="font-semibold text-slate-700">
+              <span className="text-slate-600">Fwd Rev (Q): </span>
+              <span className="font-semibold text-slate-300">
                 ${(stock.forecasts.nextQRevenue / 1e9).toFixed(1)}B
               </span>
               {stock.forecasts.nextQRevenueGrowth != null && (
-                <span className={`ml-1 ${stock.forecasts.nextQRevenueGrowth >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                <span className={`ml-1 ${stock.forecasts.nextQRevenueGrowth >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                   {fmtPct(stock.forecasts.nextQRevenueGrowth)}
                 </span>
               )}
@@ -567,14 +578,14 @@ function Top10Card({ stock, rank, onClick }: { stock: StockRow; rank: number; on
       )}
 
       {/* Score bar */}
-      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+      <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
         <div
-          className={`h-full rounded-full ${(stock.score ?? 0) >= 60 ? "bg-emerald-400" : (stock.score ?? 0) >= 40 ? "bg-amber-400" : "bg-red-400"}`}
-          style={{ width: `${Math.min(stock.score ?? 0, 100)}%` }}
+          className={`h-full rounded-full transition-all ${score >= 60 ? "score-bar-green" : score >= 40 ? "score-bar-amber" : "score-bar-red"}`}
+          style={{ width: `${Math.min(score, 100)}%` }}
         />
       </div>
       {stock.insight && (
-        <div className="mt-2 text-xs text-slate-500 line-clamp-1">{stock.insight}</div>
+        <div className="mt-2 text-xs text-slate-600 line-clamp-1">{stock.insight}</div>
       )}
     </button>
   );
@@ -592,34 +603,34 @@ function WeightSlider({
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-1.5">
+      <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-medium text-slate-500">{label}</span>
-        <span className={`text-xs font-bold tabular-nums ${color}`}>{value}%</span>
+        <span className={`text-xs font-bold tabular-nums font-mono ${color}`}>{value}%</span>
       </div>
       <input
         type="range" min={0} max={100} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full cursor-pointer mb-2"
+        className="w-full cursor-pointer mb-2.5"
         style={{
           color: trackColor,
           accentColor: trackColor,
-          background: `linear-gradient(to right, ${trackColor} 0%, ${trackColor} ${value}%, #e2e8f0 ${value}%, #e2e8f0 100%)`,
+          background: `linear-gradient(to right, ${trackColor} 0%, ${trackColor} ${value}%, rgba(255,255,255,0.08) ${value}%, rgba(255,255,255,0.08) 100%)`,
         }}
         aria-label={`${label} weight`}
       />
       <div className="flex items-center justify-between gap-1">
         <button
           onClick={() => step(-5)}
-          className="w-6 h-6 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-bold flex items-center justify-center transition-colors cursor-pointer select-none"
+          className="w-6 h-6 rounded-md bg-white/5 hover:bg-white/10 text-slate-400 text-sm font-bold flex items-center justify-center transition-colors cursor-pointer select-none border border-white/[0.06]"
         >−</button>
         <input
           type="number" min={0} max={100} value={value}
           onChange={(e) => onChange(Math.max(0, Math.min(100, Number(e.target.value))))}
-          className="w-12 text-center text-xs font-semibold border border-slate-200 rounded-md py-0.5 focus:outline-none focus:ring-1 focus:ring-amber-400 tabular-nums"
+          className="w-12 text-center text-xs font-semibold font-mono bg-white/5 border border-white/[0.08] rounded-md py-0.5 text-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 tabular-nums"
         />
         <button
           onClick={() => step(5)}
-          className="w-6 h-6 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-bold flex items-center justify-center transition-colors cursor-pointer select-none"
+          className="w-6 h-6 rounded-md bg-white/5 hover:bg-white/10 text-slate-400 text-sm font-bold flex items-center justify-center transition-colors cursor-pointer select-none border border-white/[0.06]"
         >+</button>
       </div>
     </div>
@@ -631,11 +642,11 @@ function WeightSlider({
 function MiniMetric({ label, value, positive }: { label: string; value: string; positive?: boolean }) {
   return (
     <div>
-      <div className="text-xs text-slate-400 mb-0.5">{label}</div>
-      <div className={`text-sm font-semibold tabular-nums leading-tight ${
-        positive === true  ? "text-emerald-700"
-        : positive === false ? "text-red-700"
-        : "text-slate-800"
+      <div className="text-[10px] text-slate-600 mb-0.5 uppercase tracking-wide">{label}</div>
+      <div className={`text-sm font-semibold tabular-nums font-mono leading-tight ${
+        positive === true  ? "text-emerald-400"
+        : positive === false ? "text-red-400"
+        : "text-slate-200"
       }`}>
         {value}
       </div>
