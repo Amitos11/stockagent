@@ -7,7 +7,7 @@ import { NextRequest } from "next/server";
 import { spawn } from "child_process";
 import { join } from "path";
 import { readFileSync, writeFileSync, existsSync } from "fs";
-import { TICKERS } from "@/lib/tickers";
+import { ALL_TICKERS } from "@/lib/tickers";
 import { hasMinData, applyScores, generateInsight, isValuePlay } from "@/lib/scoring";
 import { putStock } from "@/lib/stockCache";
 import type { ScanWeights, StockRow, ScanResult } from "@/lib/types";
@@ -89,7 +89,7 @@ export async function GET(req: NextRequest) {
   }
 
   const SCRIPT     = join(process.cwd(), "src", "scripts", "yf_fetch.py");
-  const allSymbols = Array.from(TICKERS);
+  const allSymbols = Array.from(ALL_TICKERS);
 
   const stream = new ReadableStream({
     start(controller) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import {
   ScanLine, TrendingUp, BarChart3, Target, Layers,
   RefreshCw, Download, Search, ChevronRight, AlertCircle,
@@ -15,7 +15,7 @@ import { ScoreBadge, DayChangeBadge, ValueBadge } from "@/components/ScoreBadge"
 import { SectorChart } from "@/components/SectorChart";
 import { MarketHeatmap } from "@/components/MarketHeatmap";
 import { fmtPrice, fmtPct, fmtNum } from "@/lib/formatters";
-import { TICKERS, getSector, SECTOR_META } from "@/lib/tickers";
+import { ALL_TICKERS, BUFFETT_QUOTES, getSector, SECTOR_META } from "@/lib/tickers";
 
 type Tab = "top10" | "all" | "value" | "sectors" | "heatmap";
 type MarketFilter = "all" | "US" | "IL";
@@ -37,6 +37,11 @@ export default function DashboardPage() {
 
   const totalWeight = wGrowth + wProfit + wValue;
 
+  const dailyQuote = useMemo(() => {
+    const day = new Date().getDate();
+    return BUFFETT_QUOTES[day % BUFFETT_QUOTES.length];
+  }, []);
+
   const runScan = useCallback(() => {
     setScanning(true);
     setScanError("");
@@ -47,7 +52,7 @@ export default function DashboardPage() {
 
     const url = `/api/scan/stream?growth=${wGrowth}&profitability=${wProfit}&valuation=${wValue}`;
     const es = new EventSource(url);
-    let total: number = TICKERS.length;
+    let total: number = ALL_TICKERS.length;
     let done = false;
 
     es.onmessage = (ev) => {
@@ -201,7 +206,7 @@ export default function DashboardPage() {
 
           {/* Center info */}
           <div className="hidden lg:flex items-center gap-2 text-xs" style={{ color: "rgba(148,163,184,0.5)" }}>
-            <span>{TICKERS.length} tickers · US + IL</span>
+            <span>{ALL_TICKERS.length} tickers · US + IL</span>
             {results?.scannedAt && (
               <><span>·</span>
               <span suppressHydrationWarning>Last scan: {new Date(results.scannedAt).toLocaleTimeString()}</span></>
@@ -228,7 +233,7 @@ export default function DashboardPage() {
                 ? <RefreshCw size={14} className="animate-spin" />
                 : <ScanLine size={14} />}
               {scanning
-                ? receivedCount > 0 ? `${receivedCount}/${TICKERS.length}` : "Scanning…"
+                ? receivedCount > 0 ? `${receivedCount}/${ALL_TICKERS.length}` : "Scanning…"
                 : "Run Scan"}
             </button>
           </div>
@@ -325,17 +330,17 @@ export default function DashboardPage() {
               <ScanLine size={24} style={{ color: "#818cf8" }} />
             </div>
 
-            <div className="text-center px-6">
-              <blockquote className="italic text-sm mb-2 max-w-md" style={{ color: "rgba(148,163,184,0.8)" }}>
-                "Be fearful when others are greedy, and greedy when others are fearful."
+            <div className="text-center px-6 max-w-lg">
+              <blockquote className="italic text-sm mb-2" style={{ color: "rgba(148,163,184,0.8)" }}>
+                &ldquo;{dailyQuote.text}&rdquo;
               </blockquote>
-              <cite className="text-xs font-semibold gradient-text-gold not-italic">Warren Buffett · Contrarian edge.</cite>
+              <cite className="text-xs font-semibold gradient-text-gold not-italic">Warren Buffett · {dailyQuote.context}</cite>
             </div>
 
             <div className="text-center">
               <div className="font-bold text-lg gradient-text">Ready to Scan</div>
               <div className="text-sm mt-1" style={{ color: "rgba(148,163,184,0.5)" }}>
-                {TICKERS.length} tickers · US mega-cap, semis, software, healthcare, Israeli NASDAQ &amp; TASE
+                {ALL_TICKERS.length} tickers · US mega-cap, semis, software, healthcare, Israeli NASDAQ &amp; TASE
               </div>
             </div>
             <button
@@ -356,7 +361,7 @@ export default function DashboardPage() {
             <div className="flex items-center gap-3 px-1">
               <div className="flex items-center gap-2 text-sm font-medium" style={{ color: "rgba(148,163,184,0.8)" }}>
                 <div className="pulse-dot w-2 h-2 rounded-full bg-indigo-400" />
-                Live results — {receivedCount} / {TICKERS.length} fetched
+                Live results — {receivedCount} / {ALL_TICKERS.length} fetched
               </div>
               <span className="text-xs" style={{ color: "rgba(148,163,184,0.4)" }}>Table updates in real-time</span>
             </div>
@@ -393,6 +398,16 @@ export default function DashboardPage() {
               {leader && (
                 <MetricCard label="Leader" value={leader.symbol} sub={`Score ${(leader.score ?? 0).toFixed(1)}`} accent="cyan" icon={<TrendingUp size={15} />} />
               )}
+            </div>
+
+            {/* Buffett quote strip */}
+            <div className="rounded-xl px-4 py-2.5 flex items-center gap-3"
+              style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.15)" }}>
+              <span className="text-xs gradient-text-gold flex-shrink-0 font-semibold">✦ Buffett</span>
+              <span className="text-xs italic flex-1 min-w-0 truncate" style={{ color: "rgba(148,163,184,0.7)" }}>
+                &ldquo;{dailyQuote.text}&rdquo;
+              </span>
+              <span className="text-xs hidden sm:block flex-shrink-0" style={{ color: "rgba(148,163,184,0.4)" }}>{dailyQuote.context}</span>
             </div>
 
             {/* Market filter (mobile) */}
@@ -539,15 +554,7 @@ function RankedTable({
                   <td className="px-4 py-3">
                     <div className="flex flex-col gap-1">
                       <ScoreBadge score={score} size="sm" />
-                      <div className="h-1 w-14 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
-                        <div
-                          className="h-full rounded-full"
-                          style={{
-                            width: `${Math.min(score, 100)}%`,
-                            background: score >= 60 ? "#10b981" : score >= 40 ? "#6366f1" : "#f43f5e",
-                          }}
-                        />
-                      </div>
+                      <TrafficLight score={score} />
                     </div>
                   </td>
                   <td className="px-4 py-3 text-sm font-semibold tabular-nums whitespace-nowrap text-slate-200">
@@ -648,16 +655,7 @@ function Top10Card({ stock, rank, onClick }: { stock: StockRow; rank: number; on
       )}
 
       {/* Score bar */}
-      <div className="h-1 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
-        <div
-          className="h-full rounded-full transition-all"
-          style={{
-            width: `${Math.min(score, 100)}%`,
-            background: score >= 60 ? "linear-gradient(90deg, #059669, #10b981)" : score >= 40 ? "linear-gradient(90deg, #4f46e5, #6366f1)" : "linear-gradient(90deg, #be123c, #f43f5e)",
-            boxShadow: score >= 60 ? "0 0 8px rgba(16,185,129,0.5)" : score >= 40 ? "0 0 8px rgba(99,102,241,0.5)" : "none",
-          }}
-        />
-      </div>
+      <TrafficLight score={score} width="w-full" />
       {stock.insight && (
         <div className="mt-2 text-xs line-clamp-1" style={{ color: "rgba(148,163,184,0.45)" }}>{stock.insight}</div>
       )}
@@ -689,6 +687,27 @@ function WeightSlider({
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full cursor-pointer opacity-0 h-1.5 mt-[-6px] relative"
         aria-label={`${label} weight`}
+      />
+    </div>
+  );
+}
+
+// ─── Traffic Light Score Bar ──────────────────────────────────────────────────
+
+function TrafficLight({ score, width = "w-20" }: { score: number; width?: string }) {
+  const isGreen  = score >= 65;
+  const isYellow = score >= 40 && score < 65;
+  const color    = isGreen ? "#10b981" : isYellow ? "#f59e0b" : "#f43f5e";
+  const glow     = isGreen
+    ? "0 0 10px rgba(16,185,129,0.6), 0 0 20px rgba(16,185,129,0.25)"
+    : isYellow
+    ? "0 0 10px rgba(245,158,11,0.6), 0 0 20px rgba(245,158,11,0.25)"
+    : "0 0 10px rgba(244,63,94,0.5), 0 0 20px rgba(244,63,94,0.2)";
+  return (
+    <div className={`h-1.5 rounded-full overflow-hidden ${width}`} style={{ background: "rgba(255,255,255,0.06)" }}>
+      <div
+        className="h-full rounded-full transition-all"
+        style={{ width: `${Math.min(score, 100)}%`, background: color, boxShadow: glow }}
       />
     </div>
   );

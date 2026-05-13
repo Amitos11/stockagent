@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { TICKERS } from "@/lib/tickers";
+import { ALL_TICKERS } from "@/lib/tickers";
 import { fetchBatch, fetchFullEnrich } from "@/lib/fetcher";
 import { hasMinData, applyScores, generateInsight, isValuePlay } from "@/lib/scoring";
 import type { ScanWeights, StockRow } from "@/lib/types";
@@ -18,8 +18,8 @@ export async function POST(req: NextRequest) {
   const BATCH_SIZE = 10;
   const allRows: StockRow[] = [];
 
-  for (let i = 0; i < TICKERS.length; i += BATCH_SIZE) {
-    const batch = Array.from(TICKERS.slice(i, i + BATCH_SIZE));
+  for (let i = 0; i < ALL_TICKERS.length; i += BATCH_SIZE) {
+    const batch = Array.from(ALL_TICKERS.slice(i, i + BATCH_SIZE));
     const results = await fetchBatch(batch);
     allRows.push(...results);
   }
