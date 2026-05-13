@@ -219,11 +219,11 @@ def fetch_batch(symbols: list) -> list:
     return results
 
 
-def stream_parallel(symbols: list, max_workers: int = 4) -> None:
+def stream_parallel(symbols: list, max_workers: int = 30) -> None:
     if not symbols:
         return
 
-    # ── FMP path: 1 HTTP request for all symbols, results in ~2s ──────────────
+    # ── FMP path: bulk requests, all symbols in ~2-3s ─────────────────────────
     if FMP_KEY:
         raw = _fmp_bulk(symbols)
         missing = []
@@ -233,44 +233,47 @@ def stream_parallel(symbols: list, max_workers: int = 4) -> None:
                 print(json.dumps(row), flush=True)
             else:
                 missing.append(sym)
-        # yfinance fallback for any FMP misses
-        for sym in missing:
-            print(json.dumps(_yf_fetch(sym)), flush=True)
-            time.sleep(0.5)
+        # yfinance fallback for any FMP misses — parallel
+        if missing:
+            with ThreadPoolExecutor(max_workers=min(len(missing), 20)) as ex:
+                futs = {ex.submit(_yf_fetch, sym): sym for sym in missing}
+                for future in as_completed(futs):
+                    try:
+                        print(json.dumps(future.result()), flush=True)
+                    except Exception as e:
+                        print(json.dumps({"symbol": futs[future], "error": str(e)[:80]}), flush=True)
         return
 
-    # ── yfinance fallback path ─────────────────────────────────────────────────
-    first_row = _yf_fetch(symbols[0])
-    print(json.dumps(first_row), flush=True)
-    time.sleep(0.5)
-
-    rest = symbols[1:]
+    # ── yfinance fallback: chunked parallel batches ────────────────────────────
+    # Split into chunks so we don't hammer Yahoo all at once
+    CHUNK = 25
     failed = []
 
-    def fetch_staggered(sym: str, idx: int) -> dict:
-        time.sleep(idx * 0.2)
-        return _yf_fetch(sym)
+    for batch_start in range(0, len(symbols), CHUNK):
+        chunk = symbols[batch_start:batch_start + CHUNK]
+        with ThreadPoolExecutor(max_workers=min(len(chunk), max_workers)) as executor:
+            futures = {executor.submit(_yf_fetch, sym): sym for sym in chunk}
+            for future in as_completed(futures):
+                sym = futures[future]
+                try:
+                    row = future.result()
+                except Exception as e:
+                    row = {"symbol": sym, "error": str(e)[:80]}
+                err = row.get("error", "")
+                if "401" in err or "crumb" in err.lower() or "rate" in err.lower() or "too many" in err.lower() or "429" in err:
+                    failed.append(sym)
+                else:
+                    print(json.dumps(row), flush=True)
+        # small pause between chunks to respect rate limits
+        if batch_start + CHUNK < len(symbols):
+            time.sleep(0.8)
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(fetch_staggered, sym, idx): sym
-                   for idx, sym in enumerate(rest)}
-        for future in as_completed(futures):
-            sym = futures[future]
-            try:
-                row = future.result()
-            except Exception as e:
-                row = {"symbol": sym, "error": str(e)[:80]}
-            err = row.get("error", "")
-            if "401" in err or "crumb" in err.lower() or "rate" in err.lower() or "too many" in err.lower():
-                failed.append(sym)
-            else:
-                print(json.dumps(row), flush=True)
-
+    # retry rate-limited symbols sequentially
     if failed:
-        time.sleep(2)
+        time.sleep(3)
         for sym in failed:
             print(json.dumps(_yf_fetch(sym)), flush=True)
-            time.sleep(0.5)
+            time.sleep(0.3)
 
 
 # ── candles ────────────────────────────────────────────────────────────────────
