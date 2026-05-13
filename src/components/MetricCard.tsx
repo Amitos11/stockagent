@@ -4,65 +4,88 @@ interface MetricCardProps {
   label: string;
   value: string | number;
   sub?: string;
-  accent?: "default" | "gold" | "green" | "red" | "purple";
+  accent?: "default" | "gold" | "green" | "red" | "purple" | "cyan";
   icon?: React.ReactNode;
 }
 
-const topBarMap = {
-  default: "linear-gradient(90deg,#94a3b8,#cbd5e1)",
-  gold:    "linear-gradient(90deg,#f59e0b,#fbbf24)",
-  green:   "linear-gradient(90deg,#16a34a,#4ade80)",
-  red:     "linear-gradient(90deg,#dc2626,#f87171)",
-  purple:  "linear-gradient(90deg,#7c3aed,#a78bfa)",
+const accentGlow: Record<string, string> = {
+  default:  "rgba(148,163,184,0.2)",
+  gold:     "rgba(245,158,11,0.25)",
+  green:    "rgba(16,185,129,0.25)",
+  red:      "rgba(244,63,94,0.25)",
+  purple:   "rgba(99,102,241,0.25)",
+  cyan:     "rgba(34,211,238,0.25)",
 };
 
-const valueColorMap = {
-  default: "#0f172a",
-  gold:    "#b45309",
-  green:   "#15803d",
-  red:     "#dc2626",
-  purple:  "#6d28d9",
+const accentBorder: Record<string, string> = {
+  default:  "rgba(148,163,184,0.3)",
+  gold:     "rgba(245,158,11,0.4)",
+  green:    "rgba(16,185,129,0.4)",
+  red:      "rgba(244,63,94,0.4)",
+  purple:   "rgba(99,102,241,0.4)",
+  cyan:     "rgba(34,211,238,0.4)",
 };
 
-const iconBgMap = {
-  default: "#f1f5f9",
-  gold:    "#fef3c7",
-  green:   "#dcfce7",
-  red:     "#fee2e2",
-  purple:  "#ede9fe",
+const valueColor: Record<string, string> = {
+  default:  "#f1f5f9",
+  gold:     "#fbbf24",
+  green:    "#34d399",
+  red:      "#fb7185",
+  purple:   "#818cf8",
+  cyan:     "#67e8f9",
 };
 
-const iconColorMap = {
-  default: "#64748b",
-  gold:    "#d97706",
-  green:   "#16a34a",
-  red:     "#dc2626",
-  purple:  "#7c3aed",
+const iconBg: Record<string, string> = {
+  default:  "rgba(148,163,184,0.1)",
+  gold:     "rgba(245,158,11,0.12)",
+  green:    "rgba(16,185,129,0.12)",
+  red:      "rgba(244,63,94,0.12)",
+  purple:   "rgba(99,102,241,0.12)",
+  cyan:     "rgba(34,211,238,0.12)",
 };
 
 export function MetricCard({ label, value, sub, accent = "default", icon }: MetricCardProps) {
   return (
-    <div className="card-float rounded-2xl p-5 flex flex-col gap-2 min-w-0 relative overflow-hidden">
-      {/* Top gradient accent bar */}
-      <div className="absolute top-0 left-0 right-0 h-[3px] rounded-t-2xl"
-        style={{ background: topBarMap[accent] }} />
-
-      <div className="flex items-center gap-2 mt-1">
+    <div
+      className="glass rounded-2xl p-5 flex flex-col gap-2 min-w-0 depth-2 glass-hover relative overflow-hidden"
+      style={{
+        borderColor: accentBorder[accent],
+        boxShadow: `0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px ${accentBorder[accent]}, inset 0 1px 0 rgba(255,255,255,0.06)`,
+      }}
+    >
+      <div className="flex items-center gap-2.5">
         {icon && (
-          <span className="flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center"
-            style={{ background: iconBgMap[accent], color: iconColorMap[accent] }}>
-            {icon}
-          </span>
+          <div
+            className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{ background: iconBg[accent] }}
+          >
+            <span style={{ color: valueColor[accent] }}>{icon}</span>
+          </div>
         )}
-        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider truncate">
+        <span className="text-xs font-semibold uppercase tracking-widest truncate"
+          style={{ color: "rgba(148,163,184,0.7)" }}>
           {label}
         </span>
       </div>
-      <div className="text-2xl font-bold tabular-nums truncate"
-        style={{ color: valueColorMap[accent], fontFamily: "IBM Plex Mono, monospace" }}>
+
+      <div
+        className="text-2xl font-bold tabular-nums metric-value truncate"
+        style={{ color: valueColor[accent] }}
+      >
         {value}
       </div>
-      {sub && <div className="text-xs text-slate-400 truncate">{sub}</div>}
+
+      {sub && (
+        <div className="text-xs truncate" style={{ color: "rgba(148,163,184,0.6)" }}>
+          {sub}
+        </div>
+      )}
+
+      {/* bottom accent line */}
+      <div
+        className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-2xl"
+        style={{ background: `linear-gradient(90deg, transparent, ${accentGlow[accent]}, transparent)` }}
+      />
     </div>
   );
 }
