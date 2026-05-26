@@ -61,7 +61,8 @@ export function StockSearch({ weights, onResult, cachedSymbols = [] }: StockSear
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Any ticker: AAPL, NVDA, TEVA, POLI.TA…"
-            className="w-full pl-9 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+            className="w-full pl-9 pr-4 py-2.5 text-sm rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 text-slate-200 placeholder-slate-500"
+            style={{ background: "rgba(19,27,46,0.8)", border: "1px solid rgba(99,102,241,0.2)" }}
             aria-label="Stock ticker"
           />
         </div>
@@ -74,7 +75,7 @@ export function StockSearch({ weights, onResult, cachedSymbols = [] }: StockSear
           Analyze
         </button>
       </div>
-      {error && <div className="mt-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
+      {error && <div className="mt-2 text-sm text-red-400 rounded-lg px-3 py-2" style={{ background: "rgba(244,63,94,0.1)", border: "1px solid rgba(244,63,94,0.25)" }}>{error}</div>}
     </form>
   );
 }

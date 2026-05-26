@@ -16,6 +16,7 @@ import { SectorChart } from "@/components/SectorChart";
 import { MarketHeatmap } from "@/components/MarketHeatmap";
 import { fmtPrice, fmtPct, fmtNum } from "@/lib/formatters";
 import { ALL_TICKERS, BUFFETT_QUOTES, getSector, SECTOR_META } from "@/lib/tickers";
+import { FloatingOrbs } from "@/components/FloatingOrbs";
 
 type Tab = "top10" | "all" | "value" | "sectors" | "heatmap";
 type MarketFilter = "all" | "US" | "IL";
@@ -171,7 +172,11 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-grid" style={{ background: "linear-gradient(180deg, #080c18 0%, #060912 100%)" }}>
+    <div className="min-h-screen bg-grid relative overflow-x-hidden" style={{ background: "linear-gradient(180deg, #080c18 0%, #060912 100%)" }}>
+
+      {/* ── Aurora + floating crystal orbs ─────────────────────────────────── */}
+      <div className="aurora-bg" />
+      <FloatingOrbs />
 
       {/* ── Navbar ─────────────────────────────────────────────────────────── */}
       <nav className="sticky top-0 z-30 border-b" style={{ background: "rgba(6,9,18,0.9)", backdropFilter: "blur(20px)", borderColor: "rgba(99,102,241,0.12)" }}>
