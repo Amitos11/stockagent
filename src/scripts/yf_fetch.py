@@ -327,7 +327,8 @@ def fetch_candles(symbol: str) -> list:
 
     # ── yfinance fallback ──────────────────────────────────────────────────────
     try:
-        hist = yf.Ticker(symbol).history(period="1mo")
+        ticker = yf.Ticker(symbol, session=_cffi_session) if _cffi_session else yf.Ticker(symbol)
+        hist = ticker.history(period="1mo")
         if hist.empty:
             return []
         return [
