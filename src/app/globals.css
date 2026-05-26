@@ -393,13 +393,13 @@
   inset: 0;
   pointer-events: none;
   overflow: hidden;
-  z-index: 0;
+  z-index: -1;
 }
 
 .crystal-orb {
   position: absolute;
   border-radius: 50%;
-  /* 3-stop radial gradient: specular highlight → color body → dark base */
+  opacity: 0.22;
   background:
     radial-gradient(
       circle at 32% 30%,
@@ -410,10 +410,8 @@
       rgba(0,0,0,0.6) 100%
     );
   box-shadow:
-    /* inset depth */
     inset -6px -8px 18px rgba(0,0,0,0.45),
     inset 4px 5px 12px rgba(255,255,255,0.18),
-    /* outer glow */
     0 0 28px var(--orb-glow),
     0 8px 32px rgba(0,0,0,0.55);
   display: flex;

@@ -28,9 +28,20 @@ import yfinance as yf
 
 FMP_KEY = os.environ.get("FMP_API_KEY", "")
 
+# ── curl_cffi session (browser impersonation — bypasses Yahoo IP blocks on servers) ──
+_cffi_session = None
+try:
+    from curl_cffi import requests as cffi_requests
+    _cffi_session = cffi_requests.Session(impersonate="chrome120")
+except Exception:
+    pass
+
 _session = requests.Session()
 _session.headers.update({
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json,text/plain,*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://finance.yahoo.com/",
 })
 
 
@@ -62,14 +73,19 @@ def _fmp_bulk(symbols: list) -> dict:
     for i in range(0, len(symbols), 100):
         chunk = symbols[i:i+100]
         try:
-            r = _session.get(
-                "https://financialmodelingprep.com/stable/quote",
-                params={"symbol": ",".join(chunk), "apikey": FMP_KEY},
-                timeout=20,
-            )
+            # Try stable endpoint first; fall back to v3 if 401/403
+            url = "https://financialmodelingprep.com/api/v3/quote/" + ",".join(chunk)
+            r = _session.get(url, params={"apikey": FMP_KEY}, timeout=20)
+            if r.status_code in (401, 403):
+                r = _session.get(
+                    "https://financialmodelingprep.com/stable/quote",
+                    params={"symbol": ",".join(chunk), "apikey": FMP_KEY},
+                    timeout=20,
+                )
             if not r.ok:
                 print(f"[fmp] HTTP {r.status_code}", file=sys.stderr, flush=True)
                 continue
+
             for q in (r.json() or []):
                 sym = q.get("symbol", "")
                 if not sym: continue
@@ -128,7 +144,8 @@ def _yf_fetch(symbol: str, max_retries: int = 3) -> dict:
     last_err = None
     for attempt in range(max_retries):
         try:
-            ticker = yf.Ticker(symbol)
+            # Pass curl_cffi session so yfinance impersonates a real browser
+            ticker = yf.Ticker(symbol, session=_cffi_session) if _cffi_session else yf.Ticker(symbol)
             info   = ticker.info or {}
             if info: break
         except Exception as e:
