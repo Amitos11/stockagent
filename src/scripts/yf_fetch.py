@@ -233,7 +233,7 @@ def stream_parallel(symbols: list, max_workers: int = 30) -> None:
                 missing.append(sym)
         # yfinance fallback for any FMP misses — 8 workers (was 20, reduced to avoid Yahoo rate limiting)
         if missing:
-            with ThreadPoolExecutor(max_workers=min(len(missing), 8)) as ex:
+            with ThreadPoolExecutor(max_workers=min(len(missing), 12)) as ex:
                 futs = {ex.submit(_yf_fetch, sym): sym for sym in missing}
                 for future in as_completed(futs):
                     try:

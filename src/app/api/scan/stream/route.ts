@@ -16,7 +16,7 @@ import type { ScanWeights, StockRow, ScanResult } from "@/lib/types";
 
 interface CacheEntry { result: ScanResult; expiresAt: number; }
 const CACHE_FILE   = join(process.cwd(), ".scan-cache.json");
-const CACHE_TTL_MS = 30 * 60 * 1000;
+const CACHE_TTL_MS = 120 * 60 * 1000; // 2 hours — first scan ~90s, then instant
 const memCache     = new Map<string, CacheEntry>();
 
 function cacheKey(w: ScanWeights) { return `${w.growth}:${w.profitability}:${w.valuation}`; }
