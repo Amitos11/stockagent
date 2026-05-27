@@ -1,7 +1,7 @@
 """
 yfinance data fetcher — called from Next.js API routes via subprocess.
 Primary data source: Financial Modeling Prep (FMP) — fast, reliable, no IP blocks.
-Fast fallback:       Yahoo v7 bulk quote — price + valuation in one request.
+Fast fallback:       Yahoo chart + fundamentals-timeseries — no crumb needed.
 Deep fallback:       yfinance — fundamentals for symbols the bulk APIs miss.
 
 Usage:
@@ -304,6 +304,123 @@ def _has_scoring_data(row: dict) -> bool:
     )
 
 
+def _raw_reported(item: dict, key: str):
+    vals = item.get(key) or []
+    if not vals:
+        return None
+    latest = vals[-1] or {}
+    return sf((latest.get("reportedValue") or {}).get("raw"))
+
+
+def _yf_timeseries_fetch(symbol: str) -> dict:
+    """
+    Yahoo endpoints that currently do not require crumb:
+      - chart: live price, name, currency, 52-week range
+      - fundamentals-timeseries: PE, market cap, revenue growth, income metrics
+
+    This is much faster and more stable than yfinance.Ticker(...).info for scans.
+    """
+    sess = _cffi_session or _session
+    row = {"symbol": symbol}
+    try:
+        chart = sess.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
+            params={"range": "1d", "interval": "1d"},
+            timeout=12,
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+        )
+        if not chart.ok:
+            row["error"] = f"chart HTTP {chart.status_code}"
+            return row
+        result = (((chart.json() or {}).get("chart") or {}).get("result") or [])
+        meta = (result[0] or {}).get("meta") if result else {}
+        price = sf((meta or {}).get("regularMarketPrice"))
+        if not price:
+            row["error"] = "no price data"
+            return row
+
+        now = int(time.time())
+        period1 = now - 3 * 365 * 24 * 3600
+        period2 = now + 30 * 24 * 3600
+        types = [
+            "trailingPeRatio",
+            "trailingForwardPeRatio",
+            "trailingPegRatio",
+            "trailingMarketCap",
+            "quarterlyRevenueGrowth",
+            "trailingTotalRevenue",
+            "trailingGrossProfit",
+            "trailingNetIncome",
+            "quarterlyOperatingIncome",
+            "quarterlyTotalRevenue",
+        ]
+        ts = sess.get(
+            f"https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{symbol}",
+            params={
+                "symbol": symbol,
+                "type": ",".join(types),
+                "period1": str(period1),
+                "period2": str(period2),
+            },
+            timeout=15,
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+        )
+
+        values = {}
+        if ts.ok:
+            for item in (((ts.json() or {}).get("timeseries") or {}).get("result") or []):
+                for key in types:
+                    if key in item:
+                        values[key] = _raw_reported(item, key)
+
+        mc = values.get("trailingMarketCap")
+        total_revenue = values.get("trailingTotalRevenue")
+        net_income = values.get("trailingNetIncome")
+        q_op_income = values.get("quarterlyOperatingIncome")
+        q_revenue = values.get("quarterlyTotalRevenue")
+        prev = sf((meta or {}).get("chartPreviousClose")) or sf((meta or {}).get("previousClose"))
+
+        row.update({
+            "name":     (meta or {}).get("longName") or (meta or {}).get("shortName") or symbol,
+            "price":    price,
+            "currency": (meta or {}).get("currency", "USD"),
+            "sector":   "",
+            "industry": "",
+            "marketCap":        mc,
+            "marketCapDisplay": fmt_mc(mc, symbol),
+            "peRatio":          values.get("trailingPeRatio"),
+            "forwardPE":        values.get("trailingForwardPeRatio"),
+            "pegRatio":         values.get("trailingPegRatio"),
+            "earningsGrowth":   None,
+            "revenueGrowth":    values.get("quarterlyRevenueGrowth"),
+            "operatingMargin":  (q_op_income / q_revenue) if (q_op_income is not None and q_revenue) else None,
+            "profitMargin":     (net_income / total_revenue) if (net_income is not None and total_revenue) else None,
+            "roe":              None,
+            "debtToEquity":     None,
+            "currentRatio":     None,
+            "financialCurrency": (meta or {}).get("currency", "USD"),
+            "totalRevenue":     total_revenue,
+            "grossProfits":     values.get("trailingGrossProfit"),
+            "ebitda":           None,
+            "netIncomeTTM":     net_income,
+            "opIncomeTTM":      None,
+            "targetMeanPrice":  None,
+            "targetHighPrice":  sf((meta or {}).get("fiftyTwoWeekHigh")),
+            "targetLowPrice":   sf((meta or {}).get("fiftyTwoWeekLow")),
+            "numAnalysts":      None,
+            "recommendationKey":  "",
+            "recommendationMean": None,
+            "dayChange":        ((price - prev) / prev * 100) if (prev and prev > 0) else None,
+            "fiftyTwoWeekHigh": sf((meta or {}).get("fiftyTwoWeekHigh")),
+            "fiftyTwoWeekLow":  sf((meta or {}).get("fiftyTwoWeekLow")),
+            "nextEarnings":     "",
+        })
+        return row
+    except Exception as e:
+        row["error"] = f"timeseries failed: {str(e)[:80]}"
+        return row
+
+
 def _nasdaq_price(symbol: str) -> dict:
     """Last-resort price-only fallback. These rows are not counted as scored."""
     try:
@@ -456,6 +573,9 @@ def fetch_stock(symbol: str) -> dict:
         raw = _fmp_bulk([symbol])
         if symbol in raw:
             return raw[symbol]
+    row = _yf_timeseries_fetch(symbol)
+    if not row.get("error") and _has_scoring_data(row):
+        return row
     raw = _yf_bulk([symbol])
     row = raw.get(symbol)
     if row and _has_scoring_data(row):
@@ -519,7 +639,23 @@ def stream_parallel(symbols: list, max_workers: int = 8) -> None:
         return
 
     # ── Step 2: Yahoo v7 bulk (may be 401-blocked on Render) ─────────────────
-    yahoo_rows = _yf_bulk(missing_after_fmp)
+    yahoo_rows = {}
+    with ThreadPoolExecutor(max_workers=min(len(missing_after_fmp), 24)) as ex:
+        futs = {ex.submit(_yf_timeseries_fetch, sym): sym for sym in missing_after_fmp}
+        for future in as_completed(futs):
+            sym = futs[future]
+            try:
+                row = future.result()
+            except Exception as e:
+                row = {"symbol": sym, "error": str(e)[:80]}
+            if not row.get("error"):
+                yahoo_rows[sym] = row
+
+    # If chart/timeseries misses anything, try the legacy Yahoo quote endpoint.
+    still_missing = [s for s in missing_after_fmp if s not in yahoo_rows]
+    if still_missing:
+        yahoo_rows.update(_yf_bulk(still_missing))
+
     deep_missing = []
     price_fallbacks: dict = {}
     for sym in missing_after_fmp:

@@ -151,16 +151,6 @@ export async function GET(req: NextRequest) {
         }
         safeEnqueue(enc.encode(sseEvent("complete", result)));
         safeClose();
-
-        // Background: fill AV fundamentals cache for next scan (fire-and-forget).
-        // Detached + unref so it outlives this request and never blocks the stream.
-        if (process.env.AV_API_KEY) {
-          const enrichProc = spawn("python3", [SCRIPT, "enrich_cache", allSymbols.join(",")], {
-            detached: true,
-            stdio:    "ignore",
-          });
-          enrichProc.unref();
-        }
       });
 
       py.on("error", (err) => {
