@@ -84,7 +84,11 @@ export async function GET(req: NextRequest) {
   if (cached && cached.expiresAt > Date.now()) {
     const body = sseEvent("complete", cached.result as unknown as Record<string, unknown>);
     return new Response(body, {
-      headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" },
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+        "Connection": "keep-alive",
+      },
     });
   }
 
@@ -139,10 +143,24 @@ export async function GET(req: NextRequest) {
 
       py.on("close", () => {
         const result = buildResult(allRows, weights);
-        memCache.set(key, { result, expiresAt: Date.now() + CACHE_TTL_MS });
-        saveCache();
+        // Never cache an empty/price-only scan. That was the source of the
+        // "everything is broken until redeploy" behavior.
+        if (result.valid.length >= 20) {
+          memCache.set(key, { result, expiresAt: Date.now() + CACHE_TTL_MS });
+          saveCache();
+        }
         safeEnqueue(enc.encode(sseEvent("complete", result)));
         safeClose();
+
+        // Background: fill AV fundamentals cache for next scan (fire-and-forget).
+        // Detached + unref so it outlives this request and never blocks the stream.
+        if (process.env.AV_API_KEY) {
+          const enrichProc = spawn("python3", [SCRIPT, "enrich_cache", allSymbols.join(",")], {
+            detached: true,
+            stdio:    "ignore",
+          });
+          enrichProc.unref();
+        }
       });
 
       py.on("error", (err) => {
@@ -155,6 +173,11 @@ export async function GET(req: NextRequest) {
   });
 
   return new Response(stream, {
-    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no" },
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
   });
 }

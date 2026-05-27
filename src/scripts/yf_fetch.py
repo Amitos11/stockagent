@@ -1,15 +1,17 @@
 """
 yfinance data fetcher — called from Next.js API routes via subprocess.
 Primary data source: Financial Modeling Prep (FMP) — fast, reliable, no IP blocks.
-Fallback: yfinance (Yahoo Finance).
+Fast fallback:       Yahoo v7 bulk quote — price + valuation in one request.
+Deep fallback:       yfinance — fundamentals for symbols the bulk APIs miss.
 
 Usage:
-  python yf_fetch.py stock   <SYMBOL>
-  python yf_fetch.py batch   <SYM1,SYM2,...>
-  python yf_fetch.py stream  <SYM1,SYM2,...>
-  python yf_fetch.py candles <SYMBOL>
-  python yf_fetch.py news    <SYMBOL>
-  python yf_fetch.py enrich  <SYMBOL>
+  python yf_fetch.py stock        <SYMBOL>
+  python yf_fetch.py batch        <SYM1,SYM2,...>
+  python yf_fetch.py stream       <SYM1,SYM2,...>
+  python yf_fetch.py candles      <SYMBOL>
+  python yf_fetch.py news         <SYMBOL>
+  python yf_fetch.py enrich       <SYMBOL>
+  python yf_fetch.py enrich_cache <SYM1,SYM2,...>
 """
 
 import json, sys, os, time
@@ -27,10 +29,26 @@ import requests
 import yfinance as yf
 
 FMP_KEY = os.environ.get("FMP_API_KEY", "")
+AV_KEY  = os.environ.get("AV_API_KEY", "")
+
+# Alpha Vantage fundamentals cache — 7-day TTL (data is quarterly)
+_PROJECT_ROOT     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+AV_CACHE_FILE     = os.path.join(_PROJECT_ROOT, ".av-cache.json")
+AV_CACHE_TTL_SECS = 7 * 24 * 3600
+
+_cffi_session = None
+try:
+    from curl_cffi import requests as cffi_req
+    _cffi_session = cffi_req.Session(impersonate="chrome120")
+except Exception:
+    pass
 
 _session = requests.Session()
 _session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
 })
 
 
@@ -86,41 +104,276 @@ def _fmp_bulk(symbols: list) -> dict:
                     "currency": "USD",
                     "sector":   "",
                     "industry": "",
-                    "marketCap":        mc,
-                    "marketCapDisplay": fmt_mc(mc, sym),
-                    "peRatio":          sf(q.get("pe")),
-                    "forwardPE":        None,
-                    "pegRatio":         None,
-                    "earningsGrowth":   None,
-                    "revenueGrowth":    None,
-                    "operatingMargin":  None,
-                    "profitMargin":     None,
-                    "roe":              None,
-                    "debtToEquity":     None,
-                    "currentRatio":     None,
+                    "marketCap":         mc,
+                    "marketCapDisplay":  fmt_mc(mc, sym),
+                    "peRatio":           sf(q.get("pe")),
+                    "forwardPE":         None,
+                    "pegRatio":          None,
+                    "earningsGrowth":    None,
+                    "revenueGrowth":     None,
+                    "operatingMargin":   None,
+                    "profitMargin":      None,
+                    "roe":               None,
+                    "debtToEquity":      None,
+                    "currentRatio":      None,
                     "financialCurrency": "USD",
-                    "totalRevenue":     None,
-                    "grossProfits":     None,
-                    "ebitda":           None,
-                    "netIncomeTTM":     None,
-                    "opIncomeTTM":      None,
-                    "targetMeanPrice":  None,
-                    "targetHighPrice":  sf(q.get("yearHigh")),
-                    "targetLowPrice":   sf(q.get("yearLow")),
-                    "numAnalysts":      None,
-                    "recommendationKey":  "",
-                    "recommendationMean": None,
-                    "dayChange":        day_chg,
-                    "fiftyTwoWeekHigh": sf(q.get("yearHigh")),
-                    "fiftyTwoWeekLow":  sf(q.get("yearLow")),
-                    "nextEarnings":     next_earn,
+                    "totalRevenue":      None,
+                    "grossProfits":      None,
+                    "ebitda":            None,
+                    "netIncomeTTM":      None,
+                    "opIncomeTTM":       None,
+                    "targetMeanPrice":   None,
+                    "targetHighPrice":   sf(q.get("yearHigh")),
+                    "targetLowPrice":    sf(q.get("yearLow")),
+                    "numAnalysts":       None,
+                    "recommendationKey":   "",
+                    "recommendationMean":  None,
+                    "dayChange":         day_chg,
+                    "fiftyTwoWeekHigh":  sf(q.get("yearHigh")),
+                    "fiftyTwoWeekLow":   sf(q.get("yearLow")),
+                    "nextEarnings":      next_earn,
                 }
         except Exception as e:
             print(f"[fmp] error: {e}", file=sys.stderr, flush=True)
     return out
 
 
-# ── yfinance fallback ──────────────────────────────────────────────────────────
+# ── Alpha Vantage fundamentals cache ──────────────────────────────────────────
+# AV OVERVIEW gives PE, margins, growth for any US/NASDAQ stock.
+# Rate: 25 req/day (free tier). Cache 7 days so each symbol costs 1 call/week.
+
+_av_cache: dict = {}
+
+def _load_av_cache() -> None:
+    global _av_cache
+    try:
+        if os.path.exists(AV_CACHE_FILE):
+            with open(AV_CACHE_FILE, "r") as f:
+                _av_cache = json.load(f)
+    except Exception:
+        _av_cache = {}
+
+def _save_av_cache() -> None:
+    try:
+        with open(AV_CACHE_FILE, "w") as f:
+            json.dump(_av_cache, f)
+    except Exception as e:
+        print(f"[av] save error: {e}", file=sys.stderr)
+
+def _av_fundamentals(symbol: str) -> dict:
+    """Fetch OVERVIEW from Alpha Vantage. Returns {} on quota/failure."""
+    if not AV_KEY:
+        return {}
+    try:
+        r = _session.get(
+            "https://www.alphavantage.co/query",
+            params={"function": "OVERVIEW", "symbol": symbol, "apikey": AV_KEY},
+            timeout=15,
+        )
+        if not r.ok:
+            return {}
+        d = r.json()
+        if not d or "Symbol" not in d:
+            note = d.get("Note") or d.get("Information") or ""
+            if note:
+                print(f"[av] quota: {note[:120]}", file=sys.stderr, flush=True)
+            return {}
+        mc = sf(d.get("MarketCapitalization"))
+        return {
+            "peRatio":         sf(d.get("PERatio")),
+            "forwardPE":       sf(d.get("ForwardPE")),
+            "profitMargin":    sf(d.get("ProfitMargin")),
+            "operatingMargin": sf(d.get("OperatingMarginTTM")),
+            "roe":             sf(d.get("ReturnOnEquityTTM")),
+            "revenueGrowth":   sf(d.get("QuarterlyRevenueGrowthYOY")),
+            "earningsGrowth":  sf(d.get("QuarterlyEarningsGrowthYOY")),
+            "marketCap":       mc,
+            "sector":          d.get("Sector", ""),
+            "industry":        d.get("Industry", ""),
+            "name":            d.get("Name", ""),
+        }
+    except Exception as e:
+        print(f"[av] {symbol}: {e}", file=sys.stderr, flush=True)
+        return {}
+
+def _merge_av(row: dict) -> dict:
+    """Overlay AV cached fundamentals — only fills None/empty fields."""
+    sym = row.get("symbol", "")
+    entry = _av_cache.get(sym, {})
+    av = entry.get("data", {}) if isinstance(entry, dict) else {}
+    if not av:
+        return row
+    row = dict(row)
+    for field in ("peRatio", "forwardPE", "profitMargin", "operatingMargin",
+                  "roe", "revenueGrowth", "earningsGrowth"):
+        if row.get(field) is None and av.get(field) is not None:
+            row[field] = av[field]
+    if not row.get("marketCap") and av.get("marketCap"):
+        mc = av["marketCap"]
+        row["marketCap"] = mc
+        row["marketCapDisplay"] = fmt_mc(mc, sym)
+    for field in ("sector", "industry", "name"):
+        if not row.get(field) and av.get(field):
+            row[field] = av[field]
+    return row
+
+
+# ── Yahoo Finance v7 bulk quote (no crumb needed) ─────────────────────────────
+
+def _yf_bulk(symbols: list) -> dict:
+    """Fetch quote + valuation fields for many symbols in one Yahoo request."""
+    sess = _cffi_session or _session
+    out = {}
+    for i in range(0, len(symbols), 100):
+        chunk = symbols[i:i+100]
+        if not chunk:
+            continue
+        try:
+            r = sess.get(
+                "https://query1.finance.yahoo.com/v7/finance/quote",
+                params={
+                    "symbols": ",".join(chunk),
+                    "lang": "en-US",
+                    "region": "US",
+                    "corsDomain": "finance.yahoo.com",
+                },
+                timeout=20,
+            )
+            if not r.ok:
+                print(f"[yf_bulk] HTTP {r.status_code}", file=sys.stderr, flush=True)
+                continue
+            results = ((r.json() or {}).get("quoteResponse") or {}).get("result") or []
+            for q in results:
+                sym = q.get("symbol", "")
+                if not sym:
+                    continue
+                price = sf(q.get("regularMarketPrice"))
+                if not price:
+                    continue
+                mc = sf(q.get("marketCap"))
+                out[sym] = {
+                    "symbol":   sym,
+                    "name":     q.get("longName") or q.get("shortName") or "",
+                    "price":    price,
+                    "currency": q.get("currency", "USD"),
+                    "sector":   "",
+                    "industry": "",
+                    "marketCap":        mc,
+                    "marketCapDisplay": fmt_mc(mc, sym),
+                    "peRatio":          sf(q.get("trailingPE")),
+                    "forwardPE":        sf(q.get("forwardPE")),
+                    "pegRatio":         None,
+                    "earningsGrowth":   sf(q.get("earningsGrowth")),
+                    "revenueGrowth":    sf(q.get("revenueGrowth")),
+                    "operatingMargin":  None,
+                    "profitMargin":     None,
+                    "roe":              None,
+                    "debtToEquity":     None,
+                    "currentRatio":     None,
+                    "financialCurrency": q.get("currency", "USD"),
+                    "totalRevenue":     None,
+                    "grossProfits":     None,
+                    "ebitda":           None,
+                    "netIncomeTTM":     None,
+                    "opIncomeTTM":      None,
+                    "targetMeanPrice":  None,
+                    "targetHighPrice":  sf(q.get("fiftyTwoWeekHigh")),
+                    "targetLowPrice":   sf(q.get("fiftyTwoWeekLow")),
+                    "numAnalysts":      None,
+                    "recommendationKey":  "",
+                    "recommendationMean": None,
+                    "dayChange":        sf(q.get("regularMarketChangePercent")),
+                    "fiftyTwoWeekHigh": sf(q.get("fiftyTwoWeekHigh")),
+                    "fiftyTwoWeekLow":  sf(q.get("fiftyTwoWeekLow")),
+                    "nextEarnings":     (q.get("earningsTimestamp") and
+                                         datetime.fromtimestamp(q["earningsTimestamp"], tz=timezone.utc).strftime("%Y-%m-%d")) or "",
+                }
+        except Exception as e:
+            print(f"[yf_bulk] error: {e}", file=sys.stderr, flush=True)
+    return out
+
+
+def _has_scoring_data(row: dict) -> bool:
+    return bool(
+        row.get("peRatio")
+        or row.get("forwardPE")
+        or row.get("earningsGrowth") is not None
+        or row.get("revenueGrowth") is not None
+        or row.get("operatingMargin") is not None
+        or row.get("roe") is not None
+    )
+
+
+def _nasdaq_price(symbol: str) -> dict:
+    """Last-resort price-only fallback. These rows are not counted as scored."""
+    try:
+        r = _session.get(
+            f"https://api.nasdaq.com/api/quote/{symbol}/info",
+            params={"assetclass": "stocks"},
+            timeout=10,
+        )
+        if not r.ok:
+            return {}
+        data    = (r.json() or {}).get("data") or {}
+        primary = data.get("primaryData") or {}
+        price_str = primary.get("lastSalePrice", "")
+        price = sf(price_str.replace("$", "").replace(",", "")) if price_str else None
+        if not price:
+            return {}
+        pct_str = primary.get("percentageChange", "") or ""
+        day_chg = sf(pct_str.replace("%", "").replace("+", "")) if pct_str else None
+
+        # 52-week range: lives in keyStats (not summaryData)
+        keystats   = data.get("keyStats") or {}
+        wk52_entry = keystats.get("fiftyTwoWeekHighLow") or {}
+        wk52  = wk52_entry.get("value", "") if isinstance(wk52_entry, dict) else ""
+        low52 = high52 = None
+        if wk52 and " - " in wk52:
+            parts  = wk52.split(" - ", 1)
+            low52  = sf(parts[0].strip().replace("$","").replace(",",""))
+            high52 = sf(parts[1].strip().replace("$","").replace(",",""))
+
+        return {
+            "name":              data.get("companyName", ""),
+            "price":             price,
+            "currency":          "USD",
+            "sector":            "",
+            "industry":          "",
+            "marketCap":         None,
+            "marketCapDisplay":  "",
+            "peRatio":           None,
+            "forwardPE":         None,
+            "pegRatio":          None,
+            "earningsGrowth":    None,
+            "revenueGrowth":     None,
+            "operatingMargin":   None,
+            "profitMargin":      None,
+            "roe":               None,
+            "debtToEquity":      None,
+            "currentRatio":      None,
+            "financialCurrency": "USD",
+            "totalRevenue":      None,
+            "grossProfits":      None,
+            "ebitda":            None,
+            "netIncomeTTM":      None,
+            "opIncomeTTM":       None,
+            "targetMeanPrice":   None,
+            "targetHighPrice":   high52,
+            "targetLowPrice":    low52,
+            "numAnalysts":       None,
+            "recommendationKey":   "",
+            "recommendationMean":  None,
+            "dayChange":         day_chg,
+            "fiftyTwoWeekHigh":  high52,
+            "fiftyTwoWeekLow":   low52,
+            "nextEarnings":      "",
+        }
+    except Exception as e:
+        print(f"[nasdaq] {symbol}: {e}", file=sys.stderr, flush=True)
+        return {}
+
+
+# ── yfinance single-stock fallback ─────────────────────────────────────────────
 
 def _yf_fetch(symbol: str, max_retries: int = 3) -> dict:
     row = {"symbol": symbol}
@@ -133,7 +386,6 @@ def _yf_fetch(symbol: str, max_retries: int = 3) -> dict:
             if info: break
         except Exception as e:
             last_err = e
-            # Retry on ALL exceptions (rate limits, NoneType from yfinance internals, etc.)
             if attempt < max_retries - 1:
                 time.sleep(1.5 * (attempt + 1))
                 continue
@@ -147,9 +399,9 @@ def _yf_fetch(symbol: str, max_retries: int = 3) -> dict:
         row["error"] = "no price data"
         return row
 
-    mc = sf(info.get("marketCap"))
-    om = sf(info.get("operatingMargins"))
-    tr = sf(info.get("totalRevenue"))
+    mc   = sf(info.get("marketCap"))
+    om   = sf(info.get("operatingMargins"))
+    tr   = sf(info.get("totalRevenue"))
     prev = sf(info.get("regularMarketPreviousClose")) or sf(info.get("previousClose"))
 
     row.update({
@@ -158,34 +410,35 @@ def _yf_fetch(symbol: str, max_retries: int = 3) -> dict:
         "currency": info.get("currency", ""),
         "sector":   info.get("sector", ""),
         "industry": info.get("industry", ""),
-        "marketCap":        mc,
-        "marketCapDisplay": fmt_mc(mc, symbol),
-        "peRatio":          sf(info.get("trailingPE")),
-        "forwardPE":        sf(info.get("forwardPE")),
-        "pegRatio":         sf(info.get("pegRatio")),
-        "earningsGrowth":   sf(info.get("earningsQuarterlyGrowth")),
-        "revenueGrowth":    sf(info.get("revenueGrowth")),
-        "operatingMargin":  om,
-        "profitMargin":     sf(info.get("profitMargins")),
-        "roe":              sf(info.get("returnOnEquity")),
-        "debtToEquity":     sf(info.get("debtToEquity")),
-        "currentRatio":     sf(info.get("currentRatio")),
+        "marketCap":         mc,
+        "marketCapDisplay":  fmt_mc(mc, symbol),
+        "peRatio":           sf(info.get("trailingPE")),
+        "forwardPE":         sf(info.get("forwardPE")),
+        "pegRatio":          sf(info.get("pegRatio")),
+        "earningsGrowth":    sf(info.get("earningsQuarterlyGrowth")),
+        "revenueGrowth":     sf(info.get("revenueGrowth")),
+        "operatingMargin":   om,
+        "profitMargin":      sf(info.get("profitMargins")),
+        "roe":               sf(info.get("returnOnEquity")),
+        "debtToEquity":      sf(info.get("debtToEquity")),
+        "currentRatio":      sf(info.get("currentRatio")),
         "financialCurrency": info.get("financialCurrency") or info.get("currency") or "USD",
-        "totalRevenue":     tr,
-        "grossProfits":     sf(info.get("grossProfits")),
-        "ebitda":           sf(info.get("ebitda")),
-        "netIncomeTTM":     sf(info.get("netIncomeToCommon")),
-        "opIncomeTTM":      (om * tr) if (om is not None and tr is not None) else None,
-        "targetMeanPrice":  sf(info.get("targetMeanPrice")),
-        "targetHighPrice":  sf(info.get("targetHighPrice")),
-        "targetLowPrice":   sf(info.get("targetLowPrice")),
-        "numAnalysts":      info.get("numberOfAnalystOpinions"),
-        "recommendationKey":  info.get("recommendationKey", ""),
-        "recommendationMean": sf(info.get("recommendationMean")),
-        "dayChange":        ((price - prev) / prev * 100) if (prev and prev > 0) else sf(info.get("regularMarketChangePercent")),
-        "fiftyTwoWeekHigh": sf(info.get("fiftyTwoWeekHigh")),
-        "fiftyTwoWeekLow":  sf(info.get("fiftyTwoWeekLow")),
-        "nextEarnings":     "",
+        "totalRevenue":      tr,
+        "grossProfits":      sf(info.get("grossProfits")),
+        "ebitda":            sf(info.get("ebitda")),
+        "netIncomeTTM":      sf(info.get("netIncomeToCommon")),
+        "opIncomeTTM":       (om * tr) if (om is not None and tr is not None) else None,
+        "targetMeanPrice":   sf(info.get("targetMeanPrice")),
+        "targetHighPrice":   sf(info.get("targetHighPrice")),
+        "targetLowPrice":    sf(info.get("targetLowPrice")),
+        "numAnalysts":       info.get("numberOfAnalystOpinions"),
+        "recommendationKey":   info.get("recommendationKey", ""),
+        "recommendationMean":  sf(info.get("recommendationMean")),
+        "dayChange":         ((price - prev) / prev * 100) if (prev and prev > 0)
+                             else sf(info.get("regularMarketChangePercent")),
+        "fiftyTwoWeekHigh":  sf(info.get("fiftyTwoWeekHigh")),
+        "fiftyTwoWeekLow":   sf(info.get("fiftyTwoWeekLow")),
+        "nextEarnings":      "",
     })
     try:
         ts = info.get("earningsTimestampStart") or info.get("earningsTimestamp")
@@ -203,7 +456,20 @@ def fetch_stock(symbol: str) -> dict:
         raw = _fmp_bulk([symbol])
         if symbol in raw:
             return raw[symbol]
-    return _yf_fetch(symbol)
+    raw = _yf_bulk([symbol])
+    row = raw.get(symbol)
+    if row and _has_scoring_data(row):
+        return row
+    deep = _yf_fetch(symbol)
+    if not deep.get("error"):
+        return deep
+    if row:
+        return row
+    if ".TA" not in symbol:
+        price = _nasdaq_price(symbol)
+        if price:
+            return {"symbol": symbol, **price}
+    return deep
 
 
 def fetch_batch(symbols: list) -> list:
@@ -217,67 +483,139 @@ def fetch_batch(symbols: list) -> list:
     return results
 
 
-def stream_parallel(symbols: list, max_workers: int = 30) -> None:
+def stream_parallel(symbols: list, max_workers: int = 8) -> None:
+    """
+    Scan all symbols and stream JSON rows one per line.
+
+    Data cascade:
+      1. FMP bulk   — fastest; covers ~35 US stocks with price + PE.
+      2. Yahoo v7   — blocked on cloud IPs (401) but tried anyway.
+      3. yfinance   — blocked on cloud IPs (401) but tried anyway.
+      4. AV cache   — PE, margins, growth overlaid on ALL rows (no API call during scan).
+      5. NASDAQ API — price-only fallback for US stocks with no other source.
+
+    The AV cache is built in the background by `enrich_cache` after each scan.
+    Once populated, NASDAQ-fetched stocks gain full fundamentals and start scoring.
+    """
     if not symbols:
         return
 
-    # ── FMP path: bulk requests, all symbols in ~2-3s ─────────────────────────
+    _load_av_cache()
+
+    # ── Step 1: FMP bulk ──────────────────────────────────────────────────────
+    fmp_rows: dict = {}
     if FMP_KEY:
-        raw = _fmp_bulk(symbols)
-        missing = []
-        for sym in symbols:
-            row = raw.get(sym)
-            if row:
-                print(json.dumps(row), flush=True)
-            else:
-                missing.append(sym)
-        # yfinance fallback for any FMP misses — 8 workers (was 20, reduced to avoid Yahoo rate limiting)
-        if missing:
-            with ThreadPoolExecutor(max_workers=min(len(missing), 12)) as ex:
-                futs = {ex.submit(_yf_fetch, sym): sym for sym in missing}
-                for future in as_completed(futs):
-                    try:
-                        print(json.dumps(future.result()), flush=True)
-                    except Exception as e:
-                        print(json.dumps({"symbol": futs[future], "error": str(e)[:80]}), flush=True)
+        fmp_rows = _fmp_bulk(symbols)
+
+    missing_after_fmp = []
+    for sym in symbols:
+        row = fmp_rows.get(sym)
+        if row:
+            print(json.dumps(_merge_av(row)), flush=True)
+        else:
+            missing_after_fmp.append(sym)
+
+    if not missing_after_fmp:
         return
 
-    # ── yfinance fallback: chunked parallel batches ────────────────────────────
-    # Split into chunks so we don't hammer Yahoo all at once
-    CHUNK = 25
-    failed = []
+    # ── Step 2: Yahoo v7 bulk (may be 401-blocked on Render) ─────────────────
+    yahoo_rows = _yf_bulk(missing_after_fmp)
+    deep_missing = []
+    price_fallbacks: dict = {}
+    for sym in missing_after_fmp:
+        row = yahoo_rows.get(sym)
+        if row and _has_scoring_data(row):
+            print(json.dumps(_merge_av(row)), flush=True)
+        else:
+            if row:
+                price_fallbacks[sym] = row  # price available, no fundamentals
+            deep_missing.append(sym)
 
-    for batch_start in range(0, len(symbols), CHUNK):
-        chunk = symbols[batch_start:batch_start + CHUNK]
-        with ThreadPoolExecutor(max_workers=min(len(chunk), max_workers)) as executor:
-            futures = {executor.submit(_yf_fetch, sym): sym for sym in chunk}
-            for future in as_completed(futures):
-                sym = futures[future]
+    if not deep_missing:
+        return
+
+    # ── Step 3: yfinance deep-dive (may be 401-blocked on Render) ────────────
+    still_no_data: list = []
+    chunk_size = 16
+    for start in range(0, len(deep_missing), chunk_size):
+        chunk = deep_missing[start:start + chunk_size]
+        with ThreadPoolExecutor(max_workers=min(len(chunk), max_workers)) as ex:
+            futs = {ex.submit(_yf_fetch, sym): sym for sym in chunk}
+            for future in as_completed(futs):
+                sym = futs[future]
                 try:
                     row = future.result()
                 except Exception as e:
                     row = {"symbol": sym, "error": str(e)[:80]}
-                err = row.get("error", "")
-                if "401" in err or "crumb" in err.lower() or "rate" in err.lower() or "too many" in err.lower() or "429" in err:
-                    failed.append(sym)
+                if row.get("error"):
+                    # yfinance failed — use price_fallback + AV merge if available
+                    if sym in price_fallbacks:
+                        print(json.dumps(_merge_av(price_fallbacks[sym])), flush=True)
+                    else:
+                        still_no_data.append(sym)
                 else:
-                    print(json.dumps(row), flush=True)
-        # small pause between chunks to respect rate limits
-        if batch_start + CHUNK < len(symbols):
-            time.sleep(0.8)
+                    print(json.dumps(_merge_av(row)), flush=True)
+        if start + chunk_size < len(deep_missing):
+            time.sleep(1.0)
 
-    # retry rate-limited symbols sequentially
-    if failed:
-        time.sleep(3)
-        for sym in failed:
-            print(json.dumps(_yf_fetch(sym)), flush=True)
-            time.sleep(0.3)
+    # ── Step 4: NASDAQ price + AV cache for anything still empty ─────────────
+    if still_no_data:
+        us_syms   = [s for s in still_no_data if ".TA" not in s]
+        tase_syms = [s for s in still_no_data if ".TA" in s]
+        for sym in tase_syms:
+            print(json.dumps({"symbol": sym, "error": "TASE: live price unavailable"}), flush=True)
+        if us_syms:
+            with ThreadPoolExecutor(max_workers=min(len(us_syms), 30)) as ex:
+                futs = {ex.submit(_nasdaq_price, sym): sym for sym in us_syms}
+                for future in as_completed(futs):
+                    sym = futs[future]
+                    try:
+                        price_data = future.result()
+                    except Exception:
+                        price_data = {}
+                    if price_data and price_data.get("price"):
+                        print(json.dumps(_merge_av({"symbol": sym, **price_data})), flush=True)
+                    else:
+                        print(json.dumps({"symbol": sym, "error": "no price data"}), flush=True)
+
+
+# ── AV cache enrichment (background task, fire-and-forget) ────────────────────
+
+def enrich_cache(symbols: list) -> None:
+    """
+    Fetch Alpha Vantage OVERVIEW for stale/missing symbols at 5 req/min.
+    Spawned as a detached background process after each scan — never blocks
+    the SSE stream. Saves progress every 5 symbols to survive early kills.
+    """
+    if not AV_KEY:
+        print("[av] AV_API_KEY not set — skipping", file=sys.stderr)
+        return
+    _load_av_cache()
+    now = time.time()
+    stale = [s for s in symbols
+             if s not in _av_cache
+             or _av_cache[s].get("expires_at", 0) < now]
+    if not stale:
+        print(f"[av] all {len(symbols)} symbols fresh", file=sys.stderr, flush=True)
+        return
+    print(f"[av] enriching {len(stale)}/{len(symbols)} symbols", file=sys.stderr, flush=True)
+    for i, sym in enumerate(stale):
+        data = _av_fundamentals(sym)
+        if data:
+            _av_cache[sym] = {"data": data, "expires_at": now + AV_CACHE_TTL_SECS}
+            print(f"[av] {sym}: PE={data.get('peRatio')} margin={data.get('operatingMargin')}", file=sys.stderr, flush=True)
+        else:
+            print(f"[av] {sym}: no data", file=sys.stderr, flush=True)
+        if (i % 5 == 4) or (i == len(stale) - 1):
+            _save_av_cache()
+        if i < len(stale) - 1:
+            time.sleep(12)  # 5 req/min = 1 per 12s
+    print(f"[av] done — {len(stale)} processed", file=sys.stderr, flush=True)
 
 
 # ── candles ────────────────────────────────────────────────────────────────────
 
 def fetch_candles(symbol: str) -> list:
-    # ── FMP primary ────────────────────────────────────────────────────────────
     if FMP_KEY:
         try:
             from datetime import date, timedelta
@@ -289,8 +627,7 @@ def fetch_candles(symbol: str) -> list:
                 timeout=15,
             )
             if r.ok:
-                data = r.json() or []
-                data = list(reversed(data))  # FMP: newest-first → reverse
+                data = list(reversed(r.json() or []))
                 candles = []
                 for d in data:
                     o = sf(d.get("open")); h = sf(d.get("high"))
@@ -306,7 +643,6 @@ def fetch_candles(symbol: str) -> list:
         except Exception as e:
             print(f"[fmp candles] {e}", file=sys.stderr, flush=True)
 
-    # ── yfinance fallback ──────────────────────────────────────────────────────
     try:
         hist = yf.Ticker(symbol).history(period="1mo")
         if hist.empty:
@@ -336,14 +672,17 @@ def fetch_news(symbol: str) -> list:
             link  = (cu.get("url","") if isinstance(cu, dict) else "") or c.get("link","") or item.get("link","")
             if not title: continue
             words = set(title.lower().split())
-            sent  = "positive" if len(words & POS) > len(words & NEG) else ("negative" if len(words & NEG) > len(words & POS) else "neutral")
-            result.append({"title": title.strip(), "link": link, "source": "Yahoo", "published": "", "sentiment": sent})
+            sent  = ("positive" if len(words & POS) > len(words & NEG)
+                     else "negative" if len(words & NEG) > len(words & POS)
+                     else "neutral")
+            result.append({"title": title.strip(), "link": link, "source": "Yahoo",
+                            "published": "", "sentiment": sent})
         return result
     except Exception:
         return []
 
 
-# ── enrich ─────────────────────────────────────────────────────────────────────
+# ── enrich (yfinance deep-dive for single stock detail page) ──────────────────
 
 def fetch_enrich(symbol: str) -> dict:
     out = {}
@@ -386,13 +725,13 @@ def fetch_enrich(symbol: str) -> dict:
                 if df is not None and not df.empty:
                     for label, pfx in (("+1q","nextQ"),("+1y","nextY")):
                         if label in df.index:
-                            r = df.loc[label]
+                            row = df.loc[label]
                             if attr == "earnings_estimate":
-                                fwd[f"{pfx}Eps"]       = sf(r.get("avg"))
-                                fwd[f"{pfx}EpsGrowth"] = sf(r.get("growth"))
+                                fwd[f"{pfx}Eps"]       = sf(row.get("avg"))
+                                fwd[f"{pfx}EpsGrowth"] = sf(row.get("growth"))
                             else:
-                                fwd[f"{pfx}Revenue"]       = sf(r.get("avg"))
-                                fwd[f"{pfx}RevenueGrowth"] = sf(r.get("growth"))
+                                fwd[f"{pfx}Revenue"]       = sf(row.get("avg"))
+                                fwd[f"{pfx}RevenueGrowth"] = sf(row.get("growth"))
             except Exception:
                 pass
         out["forecasts"] = fwd
@@ -404,9 +743,11 @@ def fetch_enrich(symbol: str) -> dict:
                 actual = sf(latest.get("epsActual"))
                 est    = sf(latest.get("epsEstimate"))
                 if actual is not None and est is not None:
-                    out["lastEarnings"] = {"epsActual": actual, "epsEstimate": est,
-                                           "surprisePct": sf(latest.get("surprisePercent")),
-                                           "beat": actual >= est}
+                    out["lastEarnings"] = {
+                        "epsActual": actual, "epsEstimate": est,
+                        "surprisePct": sf(latest.get("surprisePercent")),
+                        "beat": actual >= est,
+                    }
                 else:
                     out["lastEarnings"] = {}
             else:
@@ -427,13 +768,15 @@ if __name__ == "__main__":
         sys.exit(1)
 
     cmd, arg = sys.argv[1], sys.argv[2]
+    syms = [s.strip() for s in arg.split(",") if s.strip()]
 
-    if   cmd == "stock":   print(json.dumps(fetch_stock(arg)))
-    elif cmd == "batch":   print(json.dumps(fetch_batch([s.strip() for s in arg.split(",") if s.strip()])))
-    elif cmd == "stream":  stream_parallel([s.strip() for s in arg.split(",") if s.strip()])
-    elif cmd == "candles": print(json.dumps(fetch_candles(arg)))
-    elif cmd == "news":    print(json.dumps(fetch_news(arg)))
-    elif cmd == "enrich":  print(json.dumps(fetch_enrich(arg)))
+    if   cmd == "stock":        print(json.dumps(fetch_stock(arg)))
+    elif cmd == "batch":        print(json.dumps(fetch_batch(syms)))
+    elif cmd == "stream":       stream_parallel(syms)
+    elif cmd == "candles":      print(json.dumps(fetch_candles(arg)))
+    elif cmd == "news":         print(json.dumps(fetch_news(arg)))
+    elif cmd == "enrich":       print(json.dumps(fetch_enrich(arg)))
+    elif cmd == "enrich_cache": enrich_cache(syms)
     else:
         print(json.dumps({"error": f"unknown command: {cmd}"}))
         sys.exit(1)

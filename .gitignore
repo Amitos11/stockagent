@@ -20,5 +20,6 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# Scan cache (runtime file, not for git)
+# Runtime cache files — not for git
 .scan-cache.json
+.av-cache.json
