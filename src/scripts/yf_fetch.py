@@ -133,8 +133,10 @@ def _fmp_bulk(symbols: list) -> dict:
 # ── NASDAQ website API — works from cloud servers, covers all US+NASDAQ-IL stocks
 
 def _nasdaq_fetch(symbol: str) -> dict:
-    """Single-symbol fetch from api.nasdaq.com — the same API the NASDAQ website uses.
-    Not rate-limited aggressively; accessible from cloud server IPs."""
+    """Price-only quote from api.nasdaq.com.
+    NOTE: This endpoint provides ONLY price/dayChange/52-week range.
+    No PE ratio, no market cap, no fundamentals — stocks fetched here
+    will appear in the UI but cannot be scored."""
     try:
         r = _session.get(
             f"https://api.nasdaq.com/api/quote/{symbol}/info",
@@ -157,33 +159,22 @@ def _nasdaq_fetch(symbol: str) -> dict:
         stats   = data.get("keyStats") or {}
 
         def pn(raw):
-            """Parse NASDAQ formatted string → float."""
             if isinstance(raw, dict): raw = raw.get("value", "")
             if not raw or str(raw).strip() in ("--", "N/A", ""): return None
-            s = str(raw).replace("$", "").replace(",", "").replace("%", "").strip().lstrip("+")
+            s = str(raw).replace("$","").replace(",","").replace("%","").strip().lstrip("+")
             try:    return float(s)
             except: return None
 
         price = pn(primary.get("lastSalePrice"))
         if not price: return {}
 
-        # Market cap: "$2.82T" / "$450.5B" / "$3.2M"
-        mc = None
-        try:
-            mc_str = str((stats.get("MarketCap") or {}).get("value", "") or "").replace("$","").replace(",","").strip()
-            if   mc_str.endswith("T"): mc = float(mc_str[:-1]) * 1e12
-            elif mc_str.endswith("B"): mc = float(mc_str[:-1]) * 1e9
-            elif mc_str.endswith("M"): mc = float(mc_str[:-1]) * 1e6
-            elif mc_str:               mc = float(mc_str)
-        except Exception: pass
-
-        # 52-week range: "199.62/164.08"
+        # 52-week range: "195.07 - 311.82" (space-dash-space format)
         wk52_high = wk52_low = None
-        wk_raw = str((stats.get("52WeekHighLow") or {}).get("value", "") or "")
-        if "/" in wk_raw:
-            p = wk_raw.split("/")
-            wk52_high = pn(p[0].strip())
-            wk52_low  = pn(p[1].strip())
+        wk_raw = str((stats.get("fiftyTwoWeekHighLow") or {}).get("value", "") or "")
+        if " - " in wk_raw:
+            parts = wk_raw.split(" - ", 1)
+            wk52_low  = pn(parts[0].strip())   # lower number first
+            wk52_high = pn(parts[1].strip())
 
         return {
             "symbol":   symbol,
@@ -192,34 +183,22 @@ def _nasdaq_fetch(symbol: str) -> dict:
             "currency": "USD",
             "sector":   "",
             "industry": "",
-            "marketCap":         mc,
-            "marketCapDisplay":  fmt_mc(mc, symbol) if mc else "",
-            "peRatio":           pn(stats.get("PERatio")),
-            "forwardPE":         pn(stats.get("ForwardPE")),
-            "pegRatio":          None,
-            "earningsGrowth":    None,
-            "revenueGrowth":     None,
-            "operatingMargin":   None,
-            "profitMargin":      None,
-            "roe":               None,
-            "debtToEquity":      None,
-            "currentRatio":      None,
+            # ── fundamentals not available from NASDAQ API ──────────────────
+            "marketCap": None, "marketCapDisplay": "",
+            "peRatio": None, "forwardPE": None, "pegRatio": None,
+            "earningsGrowth": None, "revenueGrowth": None,
+            "operatingMargin": None, "profitMargin": None,
+            "roe": None, "debtToEquity": None, "currentRatio": None,
             "financialCurrency": "USD",
-            "totalRevenue":      None,
-            "grossProfits":      None,
-            "ebitda":            None,
-            "netIncomeTTM":      None,
-            "opIncomeTTM":       None,
-            "targetMeanPrice":   None,
-            "targetHighPrice":   wk52_high,
-            "targetLowPrice":    wk52_low,
-            "numAnalysts":       None,
-            "recommendationKey":   "",
-            "recommendationMean":  None,
-            "dayChange":         pn(primary.get("percentageChange")),
-            "fiftyTwoWeekHigh":  wk52_high,
-            "fiftyTwoWeekLow":   wk52_low,
-            "nextEarnings":      "",
+            "totalRevenue": None, "grossProfits": None, "ebitda": None,
+            "netIncomeTTM": None, "opIncomeTTM": None,
+            "targetMeanPrice": None, "targetHighPrice": wk52_high, "targetLowPrice": wk52_low,
+            "numAnalysts": None, "recommendationKey": "", "recommendationMean": None,
+            # ── available fields ────────────────────────────────────────────
+            "dayChange":        pn(primary.get("percentageChange")),
+            "fiftyTwoWeekHigh": wk52_high,
+            "fiftyTwoWeekLow":  wk52_low,
+            "nextEarnings":     "",
         }
     except Exception as e:
         print(f"[nasdaq] {symbol}: {e}", file=sys.stderr, flush=True)
@@ -422,55 +401,48 @@ def stream_parallel(symbols: list, max_workers: int = 30) -> None:
     if not symbols:
         return
 
-    # ── Step 1: FMP bulk (fast, reliable for US stocks) ──────────────────────
+    # ── Step 1: FMP bulk — fast, provides PE + price, no rate-limit issues ───
     fmp_raw = _fmp_bulk(symbols) if FMP_KEY else {}
-    missing_after_fmp = []
+    missing = []
     for sym in symbols:
         row = fmp_raw.get(sym)
         if row:
             print(json.dumps(row), flush=True)
         else:
-            missing_after_fmp.append(sym)
+            missing.append(sym)
 
-    if not missing_after_fmp:
+    if not missing:
         return
 
-    # ── Step 2: NASDAQ API — covers all US+NASDAQ-IL stocks from cloud servers ─
-    nasdaq_raw = _nasdaq_bulk(missing_after_fmp)
-    missing_after_nasdaq = []
-    for sym in missing_after_fmp:
-        row = nasdaq_raw.get(sym)
-        if row:
-            print(json.dumps(row), flush=True)
-        else:
-            missing_after_nasdaq.append(sym)
+    # ── Step 2: yfinance — full fundamentals, low concurrency to avoid 429 ───
+    # 5 concurrent workers = ~5 simultaneous Yahoo requests, well under the
+    # per-IP rate limit. Each call provides earningsGrowth, operatingMargin,
+    # roe, etc. — everything the scoring algorithm needs.
+    YF_WORKERS = 5
+    yf_failed  = []
 
-    if not missing_after_nasdaq:
-        return
-
-    # ── Step 3: Yahoo v7 bulk — mainly for .TA (TASE) stocks ─────────────────
-    yf_raw = _yf_bulk(missing_after_nasdaq)
-    missing_after_yf = []
-    for sym in missing_after_nasdaq:
-        row = yf_raw.get(sym)
-        if row:
-            print(json.dumps(row), flush=True)
-        else:
-            missing_after_yf.append(sym)
-
-    if not missing_after_yf:
-        return
-
-    # ── Step 4: yfinance single-stock (last resort) — fully parallel ──────────
-    with ThreadPoolExecutor(max_workers=min(len(missing_after_yf), max_workers)) as executor:
-        futures = {executor.submit(_yf_fetch, sym): sym for sym in missing_after_yf}
+    with ThreadPoolExecutor(max_workers=YF_WORKERS) as executor:
+        futures = {executor.submit(_yf_fetch, sym): sym for sym in missing}
         for future in as_completed(futures):
             sym = futures[future]
             try:
                 row = future.result()
             except Exception as e:
                 row = {"symbol": sym, "error": str(e)[:80]}
+            if row.get("error"):
+                yf_failed.append(sym)
             print(json.dumps(row), flush=True)
+
+    if not yf_failed:
+        return
+
+    # ── Step 3: NASDAQ API — price-only display for any yfinance failures ────
+    # These stocks appear in the UI but have no fundamentals → no score.
+    # Better than showing nothing at all.
+    nasdaq_raw = _nasdaq_bulk(yf_failed)
+    for sym in yf_failed:
+        row = nasdaq_raw.get(sym) or {"symbol": sym, "error": "no data"}
+        print(json.dumps(row), flush=True)
 
 
 # ── candles ────────────────────────────────────────────────────────────────────
