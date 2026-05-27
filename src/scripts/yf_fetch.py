@@ -1,7 +1,7 @@
 """
-yfinance data fetcher — called from Next.js API routes via Python subprocess.
+yfinance data fetcher — called from Next.js API routes via subprocess.
 Primary data source: Financial Modeling Prep (FMP) — fast, reliable, no IP blocks.
-Fallback: direct Yahoo Finance API via curl_cffi (browser impersonation, bypasses server blocks).
+Fallback: yfinance (Yahoo Finance).
 
 Usage:
   python yf_fetch.py stock   <SYMBOL>
@@ -12,7 +12,7 @@ Usage:
   python yf_fetch.py enrich  <SYMBOL>
 """
 
-import json, sys, os, time, threading
+import json, sys, os, time
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -24,49 +24,14 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import requests
+import yfinance as yf
 
 FMP_KEY = os.environ.get("FMP_API_KEY", "")
-
-# ── curl_cffi session (browser TLS impersonation — bypasses Yahoo IP blocks) ──
-_cffi_session = None
-try:
-    from curl_cffi import requests as cffi_req
-    _cffi_session = cffi_req.Session(impersonate="chrome120")
-except Exception:
-    pass
 
 _session = requests.Session()
 _session.headers.update({
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "application/json,text/plain,*/*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Referer": "https://finance.yahoo.com/",
 })
-
-# ── Yahoo crumb (fetched once, reused across all parallel calls) ────────────
-_yf_crumb: str | None = None
-_yf_crumb_lock = threading.Lock()
-
-def _ensure_crumb() -> str | None:
-    global _yf_crumb
-    if _yf_crumb:
-        return _yf_crumb
-    if not _cffi_session:
-        return None
-    with _yf_crumb_lock:
-        if _yf_crumb:
-            return _yf_crumb
-        try:
-            _cffi_session.get("https://finance.yahoo.com/", timeout=10)
-            r = _cffi_session.get(
-                "https://query1.finance.yahoo.com/v1/test/getcrumb",
-                timeout=10,
-            )
-            if r.ok and r.text.strip() and "<" not in r.text:
-                _yf_crumb = r.text.strip()
-        except Exception:
-            pass
-    return _yf_crumb
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -78,13 +43,6 @@ def sf(v):
     except (TypeError, ValueError):
         return None
 
-def _raw(d: dict, key: str):
-    """Extract numeric value from Yahoo's {raw: x, fmt: '...'} dicts."""
-    v = d.get(key)
-    if isinstance(v, dict):
-        return sf(v.get("raw"))
-    return sf(v)
-
 def fmt_mc(mc, symbol):
     if not mc: return ""
     sym = "₪" if ".TA" in symbol else "$"
@@ -94,9 +52,10 @@ def fmt_mc(mc, symbol):
     return f"{sym}{mc:.0f}"
 
 
-# ── FMP — bulk quote (one request for up to 100 symbols) ──────────────────────
+# ── FMP — bulk quote (one request for all symbols) ─────────────────────────────
 
 def _fmp_bulk(symbols: list) -> dict:
+    """Returns {SYMBOL: row_dict} for all symbols in 1-2 HTTP requests."""
     if not FMP_KEY:
         return {}
     out = {}
@@ -161,135 +120,28 @@ def _fmp_bulk(symbols: list) -> dict:
     return out
 
 
-# ── Direct Yahoo Finance fetch via curl_cffi ───────────────────────────────────
+# ── yfinance fallback ──────────────────────────────────────────────────────────
 
-def _yf_fetch_direct(symbol: str) -> dict:
-    """
-    Fetch from Yahoo Finance quoteSummary API using curl_cffi browser impersonation.
-    Bypasses the IP-based 401 blocks that hit raw server environments like Render.
-    """
-    row = {"symbol": symbol}
-    if not _cffi_session:
-        row["error"] = "curl_cffi unavailable"
-        return row
-
-    crumb = _ensure_crumb()
-    params = {
-        "modules": "price,financialData,defaultKeyStatistics,summaryDetail",
-        "formatted": "false",
-    }
-    if crumb:
-        params["crumb"] = crumb
-
-    for attempt in range(3):
-        try:
-            r = _cffi_session.get(
-                f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol}",
-                params=params,
-                timeout=15,
-            )
-            if r.status_code in (401, 403):
-                # crumb stale — reset and retry
-                global _yf_crumb
-                _yf_crumb = None
-                crumb = _ensure_crumb()
-                if crumb:
-                    params["crumb"] = crumb
-                time.sleep(1)
-                continue
-            if not r.ok:
-                row["error"] = f"HTTP {r.status_code}"
-                return row
-            data = r.json()
-            result = (data.get("quoteSummary") or {}).get("result") or []
-            if not result:
-                row["error"] = "no data"
-                return row
-            d = result[0]
-            break
-        except Exception as e:
-            if attempt == 2:
-                row["error"] = str(e)[:80]
-                return row
-            time.sleep(1)
-    else:
-        row["error"] = "max retries"
-        return row
-
-    price_d = d.get("price") or {}
-    fin_d   = d.get("financialData") or {}
-    key_d   = d.get("defaultKeyStatistics") or {}
-    sum_d   = d.get("summaryDetail") or {}
-
-    price = _raw(price_d, "regularMarketPrice")
-    if not price:
-        row["error"] = "no price"
-        return row
-
-    mc   = _raw(price_d, "marketCap")
-    prev = _raw(price_d, "regularMarketPreviousClose")
-    om   = _raw(fin_d, "operatingMargins")
-    tr   = _raw(fin_d, "totalRevenue")
-
-    row.update({
-        "name":     price_d.get("longName") or price_d.get("shortName") or "",
-        "price":    price,
-        "currency": price_d.get("currency", ""),
-        "sector":   "",
-        "industry": "",
-        "marketCap":        mc,
-        "marketCapDisplay": fmt_mc(mc, symbol),
-        "peRatio":          _raw(sum_d, "trailingPE"),
-        "forwardPE":        _raw(key_d, "forwardPE"),
-        "pegRatio":         _raw(key_d, "pegRatio"),
-        "earningsGrowth":   _raw(fin_d, "earningsGrowth"),
-        "revenueGrowth":    _raw(fin_d, "revenueGrowth"),
-        "operatingMargin":  om,
-        "profitMargin":     _raw(fin_d, "profitMargins"),
-        "roe":              _raw(fin_d, "returnOnEquity"),
-        "debtToEquity":     _raw(fin_d, "debtToEquity"),
-        "currentRatio":     _raw(fin_d, "currentRatio"),
-        "financialCurrency": price_d.get("currency", "USD"),
-        "totalRevenue":     tr,
-        "grossProfits":     _raw(fin_d, "grossProfits"),
-        "ebitda":           _raw(fin_d, "ebitda"),
-        "netIncomeTTM":     _raw(fin_d, "netIncomeToCommon"),
-        "opIncomeTTM":      (om * tr) if (om is not None and tr is not None) else None,
-        "targetMeanPrice":  _raw(fin_d, "targetMeanPrice"),
-        "targetHighPrice":  _raw(fin_d, "targetHighPrice"),
-        "targetLowPrice":   _raw(fin_d, "targetLowPrice"),
-        "numAnalysts":      _raw(fin_d, "numberOfAnalystOpinions"),
-        "recommendationKey":  fin_d.get("recommendationKey", ""),
-        "recommendationMean": _raw(fin_d, "recommendationMean"),
-        "dayChange": ((price - prev) / prev * 100) if (prev and prev > 0) else None,
-        "fiftyTwoWeekHigh": _raw(sum_d, "fiftyTwoWeekHigh"),
-        "fiftyTwoWeekLow":  _raw(sum_d, "fiftyTwoWeekLow"),
-        "nextEarnings": "",
-    })
-    return row
-
-
-# ── yfinance last-resort fallback ─────────────────────────────────────────────
-
-def _yf_fetch_lib(symbol: str, max_retries: int = 2) -> dict:
-    """yfinance library fallback — only used if curl_cffi direct fetch fails."""
-    try:
-        import yfinance as yf
-    except ImportError:
-        return {"symbol": symbol, "error": "yfinance not installed"}
-
+def _yf_fetch(symbol: str, max_retries: int = 3) -> dict:
     row = {"symbol": symbol}
     info = None
+    last_err = None
     for attempt in range(max_retries):
         try:
-            ticker = yf.Ticker(symbol, session=_cffi_session) if _cffi_session else yf.Ticker(symbol)
+            ticker = yf.Ticker(symbol)
             info   = ticker.info or {}
             if info: break
         except Exception as e:
-            time.sleep(1.5 * (attempt + 1))
+            last_err = e
+            s = str(e).lower()
+            if "401" in s or "crumb" in s or "rate" in s or "too many" in s or "429" in s:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            row["error"] = f"fetch failed: {str(e)[:80]}"
+            return row
 
     if not info:
-        row["error"] = "fetch failed"
+        row["error"] = f"fetch failed: {str(last_err)[:80] if last_err else 'no data'}"
         return row
 
     price = sf(info.get("currentPrice")) or sf(info.get("regularMarketPrice"))
@@ -332,10 +184,10 @@ def _yf_fetch_lib(symbol: str, max_retries: int = 2) -> dict:
         "numAnalysts":      info.get("numberOfAnalystOpinions"),
         "recommendationKey":  info.get("recommendationKey", ""),
         "recommendationMean": sf(info.get("recommendationMean")),
-        "dayChange": ((price - prev) / prev * 100) if (prev and prev > 0) else sf(info.get("regularMarketChangePercent")),
+        "dayChange":        ((price - prev) / prev * 100) if (prev and prev > 0) else sf(info.get("regularMarketChangePercent")),
         "fiftyTwoWeekHigh": sf(info.get("fiftyTwoWeekHigh")),
         "fiftyTwoWeekLow":  sf(info.get("fiftyTwoWeekLow")),
-        "nextEarnings": "",
+        "nextEarnings":     "",
     })
     try:
         ts = info.get("earningsTimestampStart") or info.get("earningsTimestamp")
@@ -344,14 +196,6 @@ def _yf_fetch_lib(symbol: str, max_retries: int = 2) -> dict:
     except Exception:
         pass
     return row
-
-
-def _yf_fetch(symbol: str) -> dict:
-    """Try direct curl_cffi → yfinance lib."""
-    row = _yf_fetch_direct(symbol)
-    if "error" not in row:
-        return row
-    return _yf_fetch_lib(symbol)
 
 
 # ── public API ─────────────────────────────────────────────────────────────────
@@ -367,43 +211,69 @@ def fetch_stock(symbol: str) -> dict:
 def fetch_batch(symbols: list) -> list:
     if FMP_KEY:
         raw = _fmp_bulk(symbols)
-        return [raw.get(s) or _yf_fetch(s) for s in symbols]
-    return [_yf_fetch(s) for s in symbols]
+        return [raw.get(s) or {"symbol": s, "error": "no data"} for s in symbols]
+    results = []
+    for sym in symbols:
+        results.append(_yf_fetch(sym))
+        time.sleep(0.35)
+    return results
 
 
-def stream_parallel(symbols: list, max_workers: int = 25) -> None:
+def stream_parallel(symbols: list, max_workers: int = 30) -> None:
     if not symbols:
         return
 
-    # ── FMP path: bulk in 1-2 requests ───────────────────────────────────────
+    # ── FMP path: bulk requests, all symbols in ~2-3s ─────────────────────────
     if FMP_KEY:
         raw = _fmp_bulk(symbols)
-        missing = [s for s in symbols if s not in raw]
+        missing = []
         for sym in symbols:
-            if sym in raw:
-                print(json.dumps(raw[sym]), flush=True)
-
+            row = raw.get(sym)
+            if row:
+                print(json.dumps(row), flush=True)
+            else:
+                missing.append(sym)
+        # yfinance fallback for any FMP misses — parallel
         if missing:
-            # Pre-fetch crumb once before parallel calls
-            _ensure_crumb()
-            with ThreadPoolExecutor(max_workers=min(len(missing), max_workers)) as ex:
+            with ThreadPoolExecutor(max_workers=min(len(missing), 20)) as ex:
                 futs = {ex.submit(_yf_fetch, sym): sym for sym in missing}
-                for fut in as_completed(futs):
+                for future in as_completed(futs):
                     try:
-                        print(json.dumps(fut.result()), flush=True)
+                        print(json.dumps(future.result()), flush=True)
                     except Exception as e:
-                        print(json.dumps({"symbol": futs[fut], "error": str(e)[:80]}), flush=True)
+                        print(json.dumps({"symbol": futs[future], "error": str(e)[:80]}), flush=True)
         return
 
-    # ── No FMP: all via curl_cffi direct ─────────────────────────────────────
-    _ensure_crumb()
-    with ThreadPoolExecutor(max_workers=min(len(symbols), max_workers)) as ex:
-        futs = {ex.submit(_yf_fetch, sym): sym for sym in symbols}
-        for fut in as_completed(futs):
-            try:
-                print(json.dumps(fut.result()), flush=True)
-            except Exception as e:
-                print(json.dumps({"symbol": futs[fut], "error": str(e)[:80]}), flush=True)
+    # ── yfinance fallback: chunked parallel batches ────────────────────────────
+    # Split into chunks so we don't hammer Yahoo all at once
+    CHUNK = 25
+    failed = []
+
+    for batch_start in range(0, len(symbols), CHUNK):
+        chunk = symbols[batch_start:batch_start + CHUNK]
+        with ThreadPoolExecutor(max_workers=min(len(chunk), max_workers)) as executor:
+            futures = {executor.submit(_yf_fetch, sym): sym for sym in chunk}
+            for future in as_completed(futures):
+                sym = futures[future]
+                try:
+                    row = future.result()
+                except Exception as e:
+                    row = {"symbol": sym, "error": str(e)[:80]}
+                err = row.get("error", "")
+                if "401" in err or "crumb" in err.lower() or "rate" in err.lower() or "too many" in err.lower() or "429" in err:
+                    failed.append(sym)
+                else:
+                    print(json.dumps(row), flush=True)
+        # small pause between chunks to respect rate limits
+        if batch_start + CHUNK < len(symbols):
+            time.sleep(0.8)
+
+    # retry rate-limited symbols sequentially
+    if failed:
+        time.sleep(3)
+        for sym in failed:
+            print(json.dumps(_yf_fetch(sym)), flush=True)
+            time.sleep(0.3)
 
 
 # ── candles ────────────────────────────────────────────────────────────────────
@@ -421,59 +291,26 @@ def fetch_candles(symbol: str) -> list:
                 timeout=15,
             )
             if r.ok:
-                data = list(reversed(r.json() or []))
+                data = r.json() or []
+                data = list(reversed(data))  # FMP: newest-first → reverse
                 candles = []
                 for d in data:
                     o = sf(d.get("open")); h = sf(d.get("high"))
                     lo = sf(d.get("low")); c = sf(d.get("close"))
                     if all(v is not None for v in [o, h, lo, c]):
-                        candles.append({"time": d.get("date","")[:10],
-                                        "open": round(o,4), "high": round(h,4),
-                                        "low": round(lo,4), "close": round(c,4)})
+                        candles.append({
+                            "time":  d.get("date","")[:10],
+                            "open":  round(o, 4), "high": round(h, 4),
+                            "low":   round(lo, 4), "close": round(c, 4),
+                        })
                 if candles:
                     return candles
         except Exception as e:
             print(f"[fmp candles] {e}", file=sys.stderr, flush=True)
 
-    # ── curl_cffi direct Yahoo chart ──────────────────────────────────────────
-    if _cffi_session:
-        try:
-            crumb = _ensure_crumb()
-            params = {"interval": "1d", "range": "1mo"}
-            if crumb:
-                params["crumb"] = crumb
-            r = _cffi_session.get(
-                f"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}",
-                params=params,
-                timeout=15,
-            )
-            if r.ok:
-                data = r.json()
-                result = (data.get("chart") or {}).get("result") or []
-                if result:
-                    ts     = result[0].get("timestamp") or []
-                    quotes = (result[0].get("indicators") or {}).get("quote") or [{}]
-                    q = quotes[0]
-                    candles = []
-                    for i, t in enumerate(ts):
-                        o = sf(q.get("open",  [None])[i] if i < len(q.get("open", [])) else None)
-                        h = sf(q.get("high",  [None])[i] if i < len(q.get("high", [])) else None)
-                        lo= sf(q.get("low",   [None])[i] if i < len(q.get("low",  [])) else None)
-                        c = sf(q.get("close", [None])[i] if i < len(q.get("close",[])) else None)
-                        if all(v is not None for v in [o, h, lo, c]):
-                            dt = datetime.fromtimestamp(t, tz=timezone.utc).strftime("%Y-%m-%d")
-                            candles.append({"time": dt, "open": round(o,4), "high": round(h,4),
-                                            "low": round(lo,4), "close": round(c,4)})
-                    if candles:
-                        return candles
-        except Exception as e:
-            print(f"[yf chart direct] {e}", file=sys.stderr, flush=True)
-
-    # ── yfinance last resort ───────────────────────────────────────────────────
+    # ── yfinance fallback ──────────────────────────────────────────────────────
     try:
-        import yfinance as yf
-        ticker = yf.Ticker(symbol, session=_cffi_session) if _cffi_session else yf.Ticker(symbol)
-        hist = ticker.history(period="1mo")
+        hist = yf.Ticker(symbol).history(period="1mo")
         if hist.empty:
             return []
         return [
@@ -492,7 +329,6 @@ def fetch_news(symbol: str) -> list:
     POS = {"surge","jump","rally","beat","gain","profit","growth","strong"}
     NEG = {"crash","drop","fall","miss","loss","decline","weak","slump"}
     try:
-        import yfinance as yf
         news = yf.Ticker(symbol).news or []
         result = []
         for item in news[:3]:
@@ -514,8 +350,7 @@ def fetch_news(symbol: str) -> list:
 def fetch_enrich(symbol: str) -> dict:
     out = {}
     try:
-        import yfinance as yf
-        ticker   = yf.Ticker(symbol, session=_cffi_session) if _cffi_session else yf.Ticker(symbol)
+        ticker   = yf.Ticker(symbol)
         info     = ticker.info or {}
         officers = info.get("companyOfficers") or []
         ceo = cfo = None

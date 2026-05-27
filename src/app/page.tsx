@@ -16,7 +16,6 @@ import { SectorChart } from "@/components/SectorChart";
 import { MarketHeatmap } from "@/components/MarketHeatmap";
 import { fmtPrice, fmtPct, fmtNum } from "@/lib/formatters";
 import { ALL_TICKERS, BUFFETT_QUOTES, getSector, SECTOR_META } from "@/lib/tickers";
-import { FloatingOrbs } from "@/components/FloatingOrbs";
 
 type Tab = "top10" | "all" | "value" | "sectors" | "heatmap";
 type MarketFilter = "all" | "US" | "IL";
@@ -172,10 +171,7 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-grid relative overflow-x-hidden" style={{ background: "linear-gradient(180deg, #080c18 0%, #060912 100%)", isolation: "isolate" }}>
-
-      {/* ── Aurora background ──────────────────────────────────────────────── */}
-      <div className="aurora-bg" />
+    <div className="min-h-screen bg-grid" style={{ background: "linear-gradient(180deg, #080c18 0%, #060912 100%)" }}>
 
       {/* ── Navbar ─────────────────────────────────────────────────────────── */}
       <nav className="sticky top-0 z-30 border-b" style={{ background: "rgba(6,9,18,0.9)", backdropFilter: "blur(20px)", borderColor: "rgba(99,102,241,0.12)" }}>
@@ -251,7 +247,7 @@ export default function DashboardPage() {
         )}
       </nav>
 
-      <div className="relative z-10 max-w-screen-2xl mx-auto px-4 sm:px-6 py-6 space-y-5">
+      <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-6 space-y-5">
 
         {/* ── Controls ────────────────────────────────────────────────────── */}
         <div className="glass rounded-2xl p-5 depth-2">
