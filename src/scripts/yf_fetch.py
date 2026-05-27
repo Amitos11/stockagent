@@ -334,35 +334,16 @@ def stream_parallel(symbols: list, max_workers: int = 30) -> None:
     if not missing_after_yf:
         return
 
-    # ── Step 3: yfinance single-stock (last resort, may get 401 on servers) ──
-    CHUNK = 25
-    failed = []
-
-    for batch_start in range(0, len(missing_after_yf), CHUNK):
-        chunk = missing_after_yf[batch_start:batch_start + CHUNK]
-        with ThreadPoolExecutor(max_workers=min(len(chunk), max_workers)) as executor:
-            futures = {executor.submit(_yf_fetch, sym): sym for sym in chunk}
-            for future in as_completed(futures):
-                sym = futures[future]
-                try:
-                    row = future.result()
-                except Exception as e:
-                    row = {"symbol": sym, "error": str(e)[:80]}
-                err = row.get("error", "")
-                if "401" in err or "crumb" in err.lower() or "rate" in err.lower() or "too many" in err.lower() or "429" in err:
-                    failed.append(sym)
-                else:
-                    print(json.dumps(row), flush=True)
-        # small pause between chunks to respect rate limits
-        if batch_start + CHUNK < len(symbols):
-            time.sleep(0.8)
-
-    # retry rate-limited symbols sequentially
-    if failed:
-        time.sleep(3)
-        for sym in failed:
-            print(json.dumps(_yf_fetch(sym)), flush=True)
-            time.sleep(0.3)
+    # ── Step 3: yfinance single-stock (last resort) — fully parallel ─────────
+    with ThreadPoolExecutor(max_workers=min(len(missing_after_yf), max_workers)) as executor:
+        futures = {executor.submit(_yf_fetch, sym): sym for sym in missing_after_yf}
+        for future in as_completed(futures):
+            sym = futures[future]
+            try:
+                row = future.result()
+            except Exception as e:
+                row = {"symbol": sym, "error": str(e)[:80]}
+            print(json.dumps(row), flush=True)
 
 
 # ── candles ────────────────────────────────────────────────────────────────────
