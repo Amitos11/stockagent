@@ -28,19 +28,9 @@ import yfinance as yf
 
 FMP_KEY = os.environ.get("FMP_API_KEY", "")
 
-# curl_cffi — browser TLS impersonation, bypasses Yahoo IP blocks on servers
-_cffi_session = None
-try:
-    from curl_cffi import requests as cffi_req
-    _cffi_session = cffi_req.Session(impersonate="chrome120")
-except Exception:
-    pass
-
 _session = requests.Session()
 _session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "application/json",
-    "Accept-Language": "en-US,en;q=0.9",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 })
 
 
@@ -130,176 +120,7 @@ def _fmp_bulk(symbols: list) -> dict:
     return out
 
 
-# ── NASDAQ website API — works from cloud servers, covers all US+NASDAQ-IL stocks
-
-def _nasdaq_fetch(symbol: str) -> dict:
-    """Price-only quote from api.nasdaq.com.
-    NOTE: This endpoint provides ONLY price/dayChange/52-week range.
-    No PE ratio, no market cap, no fundamentals — stocks fetched here
-    will appear in the UI but cannot be scored."""
-    try:
-        r = _session.get(
-            f"https://api.nasdaq.com/api/quote/{symbol}/info",
-            params={"assetclass": "stocks"},
-            headers={
-                "Accept": "application/json, text/plain, */*",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Origin": "https://www.nasdaq.com",
-                "Referer": "https://www.nasdaq.com/",
-            },
-            timeout=12,
-        )
-        if not r.ok:
-            return {}
-        body = r.json()
-        if not (body.get("data") and body["data"].get("primaryData")):
-            return {}
-        data    = body["data"]
-        primary = data.get("primaryData") or {}
-        stats   = data.get("keyStats") or {}
-
-        def pn(raw):
-            if isinstance(raw, dict): raw = raw.get("value", "")
-            if not raw or str(raw).strip() in ("--", "N/A", ""): return None
-            s = str(raw).replace("$","").replace(",","").replace("%","").strip().lstrip("+")
-            try:    return float(s)
-            except: return None
-
-        price = pn(primary.get("lastSalePrice"))
-        if not price: return {}
-
-        # 52-week range: "195.07 - 311.82" (space-dash-space format)
-        wk52_high = wk52_low = None
-        wk_raw = str((stats.get("fiftyTwoWeekHighLow") or {}).get("value", "") or "")
-        if " - " in wk_raw:
-            parts = wk_raw.split(" - ", 1)
-            wk52_low  = pn(parts[0].strip())   # lower number first
-            wk52_high = pn(parts[1].strip())
-
-        return {
-            "symbol":   symbol,
-            "name":     data.get("companyName", ""),
-            "price":    price,
-            "currency": "USD",
-            "sector":   "",
-            "industry": "",
-            # ── fundamentals not available from NASDAQ API ──────────────────
-            "marketCap": None, "marketCapDisplay": "",
-            "peRatio": None, "forwardPE": None, "pegRatio": None,
-            "earningsGrowth": None, "revenueGrowth": None,
-            "operatingMargin": None, "profitMargin": None,
-            "roe": None, "debtToEquity": None, "currentRatio": None,
-            "financialCurrency": "USD",
-            "totalRevenue": None, "grossProfits": None, "ebitda": None,
-            "netIncomeTTM": None, "opIncomeTTM": None,
-            "targetMeanPrice": None, "targetHighPrice": wk52_high, "targetLowPrice": wk52_low,
-            "numAnalysts": None, "recommendationKey": "", "recommendationMean": None,
-            # ── available fields ────────────────────────────────────────────
-            "dayChange":        pn(primary.get("percentageChange")),
-            "fiftyTwoWeekHigh": wk52_high,
-            "fiftyTwoWeekLow":  wk52_low,
-            "nextEarnings":     "",
-        }
-    except Exception as e:
-        print(f"[nasdaq] {symbol}: {e}", file=sys.stderr, flush=True)
-        return {}
-
-
-def _nasdaq_bulk(symbols: list) -> dict:
-    """Parallel NASDAQ API fetch. Skips .TA symbols (TASE-only, not on NASDAQ)."""
-    us_syms = [s for s in symbols if not s.endswith(".TA")]
-    if not us_syms:
-        return {}
-    out = {}
-    with ThreadPoolExecutor(max_workers=min(len(us_syms), 20)) as ex:
-        futs = {ex.submit(_nasdaq_fetch, sym): sym for sym in us_syms}
-        for fut in as_completed(futs):
-            sym = futs[fut]
-            try:
-                row = fut.result()
-                if row:
-                    out[sym] = row
-            except Exception as e:
-                print(f"[nasdaq_bulk] {sym}: {e}", file=sys.stderr, flush=True)
-    return out
-
-
-# ── Yahoo Finance v7 bulk quote — mainly for .TA (TASE) stocks ────────────────
-
-def _yf_bulk(symbols: list) -> dict:
-    """
-    Fetch basic quote data for many symbols in one HTTP call using Yahoo v7/finance/quote.
-    Uses curl_cffi for browser impersonation — bypasses server IP blocks.
-    Returns {SYMBOL: row_dict}.
-    """
-    sess = _cffi_session or _session
-    out  = {}
-    for i in range(0, len(symbols), 100):
-        chunk = symbols[i:i+100]
-        try:
-            r = sess.get(
-                "https://query1.finance.yahoo.com/v7/finance/quote",
-                params={
-                    "symbols": ",".join(chunk),
-                    "lang": "en-US", "region": "US",
-                    "corsDomain": "finance.yahoo.com",
-                },
-                timeout=20,
-            )
-            if not r.ok:
-                print(f"[yf_bulk] HTTP {r.status_code}", file=sys.stderr, flush=True)
-                continue
-            results = (r.json().get("quoteResponse") or {}).get("result") or []
-            for q in results:
-                sym = q.get("symbol", "")
-                if not sym: continue
-                price = sf(q.get("regularMarketPrice"))
-                if not price: continue
-                mc   = sf(q.get("marketCap"))
-                prev = sf(q.get("regularMarketPreviousClose"))
-                out[sym] = {
-                    "symbol":   sym,
-                    "name":     q.get("longName") or q.get("shortName") or "",
-                    "price":    price,
-                    "currency": q.get("currency", "USD"),
-                    "sector":   "",
-                    "industry": "",
-                    "marketCap":        mc,
-                    "marketCapDisplay": fmt_mc(mc, sym),
-                    "peRatio":          sf(q.get("trailingPE")),
-                    "forwardPE":        sf(q.get("forwardPE")),
-                    "pegRatio":         None,
-                    "earningsGrowth":   sf(q.get("earningsGrowth")),
-                    "revenueGrowth":    sf(q.get("revenueGrowth")),
-                    "operatingMargin":  None,
-                    "profitMargin":     None,
-                    "roe":              None,
-                    "debtToEquity":     None,
-                    "currentRatio":     None,
-                    "financialCurrency": q.get("currency", "USD"),
-                    "totalRevenue":     None,
-                    "grossProfits":     None,
-                    "ebitda":           None,
-                    "netIncomeTTM":     None,
-                    "opIncomeTTM":      None,
-                    "targetMeanPrice":  None,
-                    "targetHighPrice":  sf(q.get("fiftyTwoWeekHigh")),
-                    "targetLowPrice":   sf(q.get("fiftyTwoWeekLow")),
-                    "numAnalysts":      sf(q.get("averageAnalystRating")),
-                    "recommendationKey":  "",
-                    "recommendationMean": None,
-                    "dayChange":        sf(q.get("regularMarketChangePercent")),
-                    "fiftyTwoWeekHigh": sf(q.get("fiftyTwoWeekHigh")),
-                    "fiftyTwoWeekLow":  sf(q.get("fiftyTwoWeekLow")),
-                    "nextEarnings":     (q.get("earningsTimestamp") and
-                                         datetime.fromtimestamp(q["earningsTimestamp"], tz=timezone.utc).strftime("%Y-%m-%d")) or "",
-                }
-        except Exception as e:
-            print(f"[yf_bulk] error: {e}", file=sys.stderr, flush=True)
-    return out
-
-
-# ── yfinance single-stock fallback ─────────────────────────────────────────────
+# ── yfinance fallback ──────────────────────────────────────────────────────────
 
 def _yf_fetch(symbol: str, max_retries: int = 3) -> dict:
     row = {"symbol": symbol}
@@ -312,8 +133,7 @@ def _yf_fetch(symbol: str, max_retries: int = 3) -> dict:
             if info: break
         except Exception as e:
             last_err = e
-            # Retry on ALL exceptions — includes yfinance internal NoneType errors,
-            # rate limits (429), crumb failures (401), and network transients.
+            # Retry on ALL exceptions (rate limits, NoneType from yfinance internals, etc.)
             if attempt < max_retries - 1:
                 time.sleep(1.5 * (attempt + 1))
                 continue
@@ -401,48 +221,57 @@ def stream_parallel(symbols: list, max_workers: int = 30) -> None:
     if not symbols:
         return
 
-    # ── Step 1: FMP bulk — fast, provides PE + price, no rate-limit issues ───
-    fmp_raw = _fmp_bulk(symbols) if FMP_KEY else {}
-    missing = []
-    for sym in symbols:
-        row = fmp_raw.get(sym)
-        if row:
-            print(json.dumps(row), flush=True)
-        else:
-            missing.append(sym)
-
-    if not missing:
+    # ── FMP path: bulk requests, all symbols in ~2-3s ─────────────────────────
+    if FMP_KEY:
+        raw = _fmp_bulk(symbols)
+        missing = []
+        for sym in symbols:
+            row = raw.get(sym)
+            if row:
+                print(json.dumps(row), flush=True)
+            else:
+                missing.append(sym)
+        # yfinance fallback for any FMP misses — 8 workers (was 20, reduced to avoid Yahoo rate limiting)
+        if missing:
+            with ThreadPoolExecutor(max_workers=min(len(missing), 8)) as ex:
+                futs = {ex.submit(_yf_fetch, sym): sym for sym in missing}
+                for future in as_completed(futs):
+                    try:
+                        print(json.dumps(future.result()), flush=True)
+                    except Exception as e:
+                        print(json.dumps({"symbol": futs[future], "error": str(e)[:80]}), flush=True)
         return
 
-    # ── Step 2: yfinance — full fundamentals, low concurrency to avoid 429 ───
-    # 5 concurrent workers = ~5 simultaneous Yahoo requests, well under the
-    # per-IP rate limit. Each call provides earningsGrowth, operatingMargin,
-    # roe, etc. — everything the scoring algorithm needs.
-    YF_WORKERS = 5
-    yf_failed  = []
+    # ── yfinance fallback: chunked parallel batches ────────────────────────────
+    # Split into chunks so we don't hammer Yahoo all at once
+    CHUNK = 25
+    failed = []
 
-    with ThreadPoolExecutor(max_workers=YF_WORKERS) as executor:
-        futures = {executor.submit(_yf_fetch, sym): sym for sym in missing}
-        for future in as_completed(futures):
-            sym = futures[future]
-            try:
-                row = future.result()
-            except Exception as e:
-                row = {"symbol": sym, "error": str(e)[:80]}
-            if row.get("error"):
-                yf_failed.append(sym)
-            print(json.dumps(row), flush=True)
+    for batch_start in range(0, len(symbols), CHUNK):
+        chunk = symbols[batch_start:batch_start + CHUNK]
+        with ThreadPoolExecutor(max_workers=min(len(chunk), max_workers)) as executor:
+            futures = {executor.submit(_yf_fetch, sym): sym for sym in chunk}
+            for future in as_completed(futures):
+                sym = futures[future]
+                try:
+                    row = future.result()
+                except Exception as e:
+                    row = {"symbol": sym, "error": str(e)[:80]}
+                err = row.get("error", "")
+                if "401" in err or "crumb" in err.lower() or "rate" in err.lower() or "too many" in err.lower() or "429" in err:
+                    failed.append(sym)
+                else:
+                    print(json.dumps(row), flush=True)
+        # small pause between chunks to respect rate limits
+        if batch_start + CHUNK < len(symbols):
+            time.sleep(0.8)
 
-    if not yf_failed:
-        return
-
-    # ── Step 3: NASDAQ API — price-only display for any yfinance failures ────
-    # These stocks appear in the UI but have no fundamentals → no score.
-    # Better than showing nothing at all.
-    nasdaq_raw = _nasdaq_bulk(yf_failed)
-    for sym in yf_failed:
-        row = nasdaq_raw.get(sym) or {"symbol": sym, "error": "no data"}
-        print(json.dumps(row), flush=True)
+    # retry rate-limited symbols sequentially
+    if failed:
+        time.sleep(3)
+        for sym in failed:
+            print(json.dumps(_yf_fetch(sym)), flush=True)
+            time.sleep(0.3)
 
 
 # ── candles ────────────────────────────────────────────────────────────────────
