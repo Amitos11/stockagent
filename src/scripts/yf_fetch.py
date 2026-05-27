@@ -333,12 +333,11 @@ def _yf_fetch(symbol: str, max_retries: int = 3) -> dict:
             if info: break
         except Exception as e:
             last_err = e
-            s = str(e).lower()
-            if "401" in s or "crumb" in s or "rate" in s or "too many" in s or "429" in s:
+            # Retry on ALL exceptions — includes yfinance internal NoneType errors,
+            # rate limits (429), crumb failures (401), and network transients.
+            if attempt < max_retries - 1:
                 time.sleep(1.5 * (attempt + 1))
                 continue
-            row["error"] = f"fetch failed: {str(e)[:80]}"
-            return row
 
     if not info:
         row["error"] = f"fetch failed: {str(last_err)[:80] if last_err else 'no data'}"
