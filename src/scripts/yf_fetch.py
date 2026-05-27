@@ -130,7 +130,122 @@ def _fmp_bulk(symbols: list) -> dict:
     return out
 
 
-# ── Yahoo Finance v7 bulk quote (no crumb needed, works on servers) ────────────
+# ── NASDAQ website API — works from cloud servers, covers all US+NASDAQ-IL stocks
+
+def _nasdaq_fetch(symbol: str) -> dict:
+    """Single-symbol fetch from api.nasdaq.com — the same API the NASDAQ website uses.
+    Not rate-limited aggressively; accessible from cloud server IPs."""
+    try:
+        r = _session.get(
+            f"https://api.nasdaq.com/api/quote/{symbol}/info",
+            params={"assetclass": "stocks"},
+            headers={
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Origin": "https://www.nasdaq.com",
+                "Referer": "https://www.nasdaq.com/",
+            },
+            timeout=12,
+        )
+        if not r.ok:
+            return {}
+        body = r.json()
+        if not (body.get("data") and body["data"].get("primaryData")):
+            return {}
+        data    = body["data"]
+        primary = data.get("primaryData") or {}
+        stats   = data.get("keyStats") or {}
+
+        def pn(raw):
+            """Parse NASDAQ formatted string → float."""
+            if isinstance(raw, dict): raw = raw.get("value", "")
+            if not raw or str(raw).strip() in ("--", "N/A", ""): return None
+            s = str(raw).replace("$", "").replace(",", "").replace("%", "").strip().lstrip("+")
+            try:    return float(s)
+            except: return None
+
+        price = pn(primary.get("lastSalePrice"))
+        if not price: return {}
+
+        # Market cap: "$2.82T" / "$450.5B" / "$3.2M"
+        mc = None
+        try:
+            mc_str = str((stats.get("MarketCap") or {}).get("value", "") or "").replace("$","").replace(",","").strip()
+            if   mc_str.endswith("T"): mc = float(mc_str[:-1]) * 1e12
+            elif mc_str.endswith("B"): mc = float(mc_str[:-1]) * 1e9
+            elif mc_str.endswith("M"): mc = float(mc_str[:-1]) * 1e6
+            elif mc_str:               mc = float(mc_str)
+        except Exception: pass
+
+        # 52-week range: "199.62/164.08"
+        wk52_high = wk52_low = None
+        wk_raw = str((stats.get("52WeekHighLow") or {}).get("value", "") or "")
+        if "/" in wk_raw:
+            p = wk_raw.split("/")
+            wk52_high = pn(p[0].strip())
+            wk52_low  = pn(p[1].strip())
+
+        return {
+            "symbol":   symbol,
+            "name":     data.get("companyName", ""),
+            "price":    price,
+            "currency": "USD",
+            "sector":   "",
+            "industry": "",
+            "marketCap":         mc,
+            "marketCapDisplay":  fmt_mc(mc, symbol) if mc else "",
+            "peRatio":           pn(stats.get("PERatio")),
+            "forwardPE":         pn(stats.get("ForwardPE")),
+            "pegRatio":          None,
+            "earningsGrowth":    None,
+            "revenueGrowth":     None,
+            "operatingMargin":   None,
+            "profitMargin":      None,
+            "roe":               None,
+            "debtToEquity":      None,
+            "currentRatio":      None,
+            "financialCurrency": "USD",
+            "totalRevenue":      None,
+            "grossProfits":      None,
+            "ebitda":            None,
+            "netIncomeTTM":      None,
+            "opIncomeTTM":       None,
+            "targetMeanPrice":   None,
+            "targetHighPrice":   wk52_high,
+            "targetLowPrice":    wk52_low,
+            "numAnalysts":       None,
+            "recommendationKey":   "",
+            "recommendationMean":  None,
+            "dayChange":         pn(primary.get("percentageChange")),
+            "fiftyTwoWeekHigh":  wk52_high,
+            "fiftyTwoWeekLow":   wk52_low,
+            "nextEarnings":      "",
+        }
+    except Exception as e:
+        print(f"[nasdaq] {symbol}: {e}", file=sys.stderr, flush=True)
+        return {}
+
+
+def _nasdaq_bulk(symbols: list) -> dict:
+    """Parallel NASDAQ API fetch. Skips .TA symbols (TASE-only, not on NASDAQ)."""
+    us_syms = [s for s in symbols if not s.endswith(".TA")]
+    if not us_syms:
+        return {}
+    out = {}
+    with ThreadPoolExecutor(max_workers=min(len(us_syms), 20)) as ex:
+        futs = {ex.submit(_nasdaq_fetch, sym): sym for sym in us_syms}
+        for fut in as_completed(futs):
+            sym = futs[fut]
+            try:
+                row = fut.result()
+                if row:
+                    out[sym] = row
+            except Exception as e:
+                print(f"[nasdaq_bulk] {sym}: {e}", file=sys.stderr, flush=True)
+    return out
+
+
+# ── Yahoo Finance v7 bulk quote — mainly for .TA (TASE) stocks ────────────────
 
 def _yf_bulk(symbols: list) -> dict:
     """
@@ -321,10 +436,23 @@ def stream_parallel(symbols: list, max_workers: int = 30) -> None:
     if not missing_after_fmp:
         return
 
-    # ── Step 2: Yahoo v7 bulk (browser impersonation, no crumb, covers all) ──
-    yf_raw = _yf_bulk(missing_after_fmp)
-    missing_after_yf = []
+    # ── Step 2: NASDAQ API — covers all US+NASDAQ-IL stocks from cloud servers ─
+    nasdaq_raw = _nasdaq_bulk(missing_after_fmp)
+    missing_after_nasdaq = []
     for sym in missing_after_fmp:
+        row = nasdaq_raw.get(sym)
+        if row:
+            print(json.dumps(row), flush=True)
+        else:
+            missing_after_nasdaq.append(sym)
+
+    if not missing_after_nasdaq:
+        return
+
+    # ── Step 3: Yahoo v7 bulk — mainly for .TA (TASE) stocks ─────────────────
+    yf_raw = _yf_bulk(missing_after_nasdaq)
+    missing_after_yf = []
+    for sym in missing_after_nasdaq:
         row = yf_raw.get(sym)
         if row:
             print(json.dumps(row), flush=True)
@@ -334,7 +462,7 @@ def stream_parallel(symbols: list, max_workers: int = 30) -> None:
     if not missing_after_yf:
         return
 
-    # ── Step 3: yfinance single-stock (last resort) — fully parallel ─────────
+    # ── Step 4: yfinance single-stock (last resort) — fully parallel ──────────
     with ThreadPoolExecutor(max_workers=min(len(missing_after_yf), max_workers)) as executor:
         futures = {executor.submit(_yf_fetch, sym): sym for sym in missing_after_yf}
         for future in as_completed(futures):
