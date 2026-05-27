@@ -28,9 +28,19 @@ import yfinance as yf
 
 FMP_KEY = os.environ.get("FMP_API_KEY", "")
 
+# curl_cffi — browser TLS impersonation, bypasses Yahoo IP blocks on servers
+_cffi_session = None
+try:
+    from curl_cffi import requests as cffi_req
+    _cffi_session = cffi_req.Session(impersonate="chrome120")
+except Exception:
+    pass
+
 _session = requests.Session()
 _session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json",
+    "Accept-Language": "en-US,en;q=0.9",
 })
 
 
@@ -120,7 +130,82 @@ def _fmp_bulk(symbols: list) -> dict:
     return out
 
 
-# ── yfinance fallback ──────────────────────────────────────────────────────────
+# ── Yahoo Finance v7 bulk quote (no crumb needed, works on servers) ────────────
+
+def _yf_bulk(symbols: list) -> dict:
+    """
+    Fetch basic quote data for many symbols in one HTTP call using Yahoo v7/finance/quote.
+    Uses curl_cffi for browser impersonation — bypasses server IP blocks.
+    Returns {SYMBOL: row_dict}.
+    """
+    sess = _cffi_session or _session
+    out  = {}
+    for i in range(0, len(symbols), 100):
+        chunk = symbols[i:i+100]
+        try:
+            r = sess.get(
+                "https://query1.finance.yahoo.com/v7/finance/quote",
+                params={
+                    "symbols": ",".join(chunk),
+                    "lang": "en-US", "region": "US",
+                    "corsDomain": "finance.yahoo.com",
+                },
+                timeout=20,
+            )
+            if not r.ok:
+                print(f"[yf_bulk] HTTP {r.status_code}", file=sys.stderr, flush=True)
+                continue
+            results = (r.json().get("quoteResponse") or {}).get("result") or []
+            for q in results:
+                sym = q.get("symbol", "")
+                if not sym: continue
+                price = sf(q.get("regularMarketPrice"))
+                if not price: continue
+                mc   = sf(q.get("marketCap"))
+                prev = sf(q.get("regularMarketPreviousClose"))
+                out[sym] = {
+                    "symbol":   sym,
+                    "name":     q.get("longName") or q.get("shortName") or "",
+                    "price":    price,
+                    "currency": q.get("currency", "USD"),
+                    "sector":   "",
+                    "industry": "",
+                    "marketCap":        mc,
+                    "marketCapDisplay": fmt_mc(mc, sym),
+                    "peRatio":          sf(q.get("trailingPE")),
+                    "forwardPE":        sf(q.get("forwardPE")),
+                    "pegRatio":         None,
+                    "earningsGrowth":   sf(q.get("earningsGrowth")),
+                    "revenueGrowth":    sf(q.get("revenueGrowth")),
+                    "operatingMargin":  None,
+                    "profitMargin":     None,
+                    "roe":              None,
+                    "debtToEquity":     None,
+                    "currentRatio":     None,
+                    "financialCurrency": q.get("currency", "USD"),
+                    "totalRevenue":     None,
+                    "grossProfits":     None,
+                    "ebitda":           None,
+                    "netIncomeTTM":     None,
+                    "opIncomeTTM":      None,
+                    "targetMeanPrice":  None,
+                    "targetHighPrice":  sf(q.get("fiftyTwoWeekHigh")),
+                    "targetLowPrice":   sf(q.get("fiftyTwoWeekLow")),
+                    "numAnalysts":      sf(q.get("averageAnalystRating")),
+                    "recommendationKey":  "",
+                    "recommendationMean": None,
+                    "dayChange":        sf(q.get("regularMarketChangePercent")),
+                    "fiftyTwoWeekHigh": sf(q.get("fiftyTwoWeekHigh")),
+                    "fiftyTwoWeekLow":  sf(q.get("fiftyTwoWeekLow")),
+                    "nextEarnings":     (q.get("earningsTimestamp") and
+                                         datetime.fromtimestamp(q["earningsTimestamp"], tz=timezone.utc).strftime("%Y-%m-%d")) or "",
+                }
+        except Exception as e:
+            print(f"[yf_bulk] error: {e}", file=sys.stderr, flush=True)
+    return out
+
+
+# ── yfinance single-stock fallback ─────────────────────────────────────────────
 
 def _yf_fetch(symbol: str, max_retries: int = 3) -> dict:
     row = {"symbol": symbol}
@@ -223,34 +308,38 @@ def stream_parallel(symbols: list, max_workers: int = 30) -> None:
     if not symbols:
         return
 
-    # ── FMP path: bulk requests, all symbols in ~2-3s ─────────────────────────
-    if FMP_KEY:
-        raw = _fmp_bulk(symbols)
-        missing = []
-        for sym in symbols:
-            row = raw.get(sym)
-            if row:
-                print(json.dumps(row), flush=True)
-            else:
-                missing.append(sym)
-        # yfinance fallback for any FMP misses — parallel
-        if missing:
-            with ThreadPoolExecutor(max_workers=min(len(missing), 20)) as ex:
-                futs = {ex.submit(_yf_fetch, sym): sym for sym in missing}
-                for future in as_completed(futs):
-                    try:
-                        print(json.dumps(future.result()), flush=True)
-                    except Exception as e:
-                        print(json.dumps({"symbol": futs[future], "error": str(e)[:80]}), flush=True)
+    # ── Step 1: FMP bulk (fast, reliable for US stocks) ──────────────────────
+    fmp_raw = _fmp_bulk(symbols) if FMP_KEY else {}
+    missing_after_fmp = []
+    for sym in symbols:
+        row = fmp_raw.get(sym)
+        if row:
+            print(json.dumps(row), flush=True)
+        else:
+            missing_after_fmp.append(sym)
+
+    if not missing_after_fmp:
         return
 
-    # ── yfinance fallback: chunked parallel batches ────────────────────────────
-    # Split into chunks so we don't hammer Yahoo all at once
+    # ── Step 2: Yahoo v7 bulk (browser impersonation, no crumb, covers all) ──
+    yf_raw = _yf_bulk(missing_after_fmp)
+    missing_after_yf = []
+    for sym in missing_after_fmp:
+        row = yf_raw.get(sym)
+        if row:
+            print(json.dumps(row), flush=True)
+        else:
+            missing_after_yf.append(sym)
+
+    if not missing_after_yf:
+        return
+
+    # ── Step 3: yfinance single-stock (last resort, may get 401 on servers) ──
     CHUNK = 25
     failed = []
 
-    for batch_start in range(0, len(symbols), CHUNK):
-        chunk = symbols[batch_start:batch_start + CHUNK]
+    for batch_start in range(0, len(missing_after_yf), CHUNK):
+        chunk = missing_after_yf[batch_start:batch_start + CHUNK]
         with ThreadPoolExecutor(max_workers=min(len(chunk), max_workers)) as executor:
             futures = {executor.submit(_yf_fetch, sym): sym for sym in chunk}
             for future in as_completed(futures):
