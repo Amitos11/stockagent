@@ -68,24 +68,24 @@ export function StockDrawer({ stock, onClose }: StockDrawerProps) {
       <div
         role="dialog"
         aria-label={`${stock.symbol} details`}
-        className="fixed right-0 top-0 h-full w-full max-w-2xl bg-white z-50 shadow-2xl overflow-y-auto"
+        className="fixed right-0 top-0 h-full w-full max-w-2xl bg-[#0d1117] z-50 shadow-2xl overflow-y-auto"
       >
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-slate-100 px-6 py-4 flex items-start justify-between z-10">
+        <div className="sticky top-0 bg-[#0d1117] border-b border-white/[0.06] px-6 py-4 flex items-start justify-between z-10">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold text-slate-900">{stock.symbol}</h2>
+              <h2 className="text-xl font-bold text-white">{stock.symbol}</h2>
               {stock.isValuePlay && <ValueBadge isValuePlay />}
               <DayChangeBadge value={stock.dayChange} />
             </div>
-            <div className="text-sm text-slate-500 mt-0.5">{stock.name}</div>
+            <div className="text-sm text-slate-400 mt-0.5">{stock.name}</div>
             {stock.sector && (
-              <div className="text-xs text-slate-400 mt-0.5">{stock.sector}{stock.industry ? ` · ${stock.industry}` : ""}</div>
+              <div className="text-xs text-slate-500 mt-0.5">{stock.sector}{stock.industry ? ` · ${stock.industry}` : ""}</div>
             )}
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-lg hover:bg-slate-100 transition-colors text-slate-400 hover:text-slate-600 cursor-pointer"
+            className="p-2 rounded-lg hover:bg-white/[0.08] transition-colors text-slate-400 hover:text-slate-200 cursor-pointer"
             aria-label="Close"
           >
             <X size={20} />
@@ -95,25 +95,25 @@ export function StockDrawer({ stock, onClose }: StockDrawerProps) {
         <div className="px-6 py-5 space-y-6">
           {/* Key metrics row */}
           <div className="grid grid-cols-3 gap-3">
-            <div className="bg-slate-50 rounded-xl p-4">
-              <div className="text-xs text-slate-500 font-medium mb-1">Price</div>
-              <div className="text-lg font-bold text-slate-900 tabular-nums">
+            <div className="bg-[#131b2e] rounded-xl p-4">
+              <div className="text-xs text-slate-400 font-medium mb-1">Price</div>
+              <div className="text-lg font-bold text-white tabular-nums">
                 {fmtPrice(stock.price, stock.symbol, stock.currency)}
               </div>
             </div>
-            <div className="bg-slate-50 rounded-xl p-4">
-              <div className="text-xs text-slate-500 font-medium mb-1">Market Cap</div>
-              <div className="text-lg font-bold text-slate-900 tabular-nums">{stock.marketCapDisplay ?? "—"}</div>
+            <div className="bg-[#131b2e] rounded-xl p-4">
+              <div className="text-xs text-slate-400 font-medium mb-1">Market Cap</div>
+              <div className="text-lg font-bold text-white tabular-nums">{stock.marketCapDisplay ?? "—"}</div>
             </div>
-            <div className="bg-slate-50 rounded-xl p-4">
-              <div className="text-xs text-slate-500 font-medium mb-1">Trailing P/E</div>
-              <div className="text-lg font-bold text-slate-900 tabular-nums">{fmtNum(stock.peRatio, 1)}</div>
+            <div className="bg-[#131b2e] rounded-xl p-4">
+              <div className="text-xs text-slate-400 font-medium mb-1">Trailing P/E</div>
+              <div className="text-lg font-bold text-white tabular-nums">{fmtNum(stock.peRatio, 1)}</div>
             </div>
           </div>
 
           {/* Score */}
-          <div className="bg-slate-50 rounded-xl p-4">
-            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Composite Score</div>
+          <div className="bg-[#131b2e] rounded-xl p-4">
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Composite Score</div>
             <ScoreBar
               score={stock.score ?? 0}
               growth={stock.scoreGrowth}
@@ -121,7 +121,7 @@ export function StockDrawer({ stock, onClose }: StockDrawerProps) {
               valuation={stock.scoreValuation}
             />
             {stock.insight && (
-              <div className="mt-3 text-sm text-slate-600 border-t border-slate-200 pt-3">
+              <div className="mt-3 text-sm text-slate-400 border-t border-white/[0.06] pt-3">
                 {stock.insight}
               </div>
             )}
@@ -129,7 +129,7 @@ export function StockDrawer({ stock, onClose }: StockDrawerProps) {
 
           {/* Candlestick chart */}
           {candlesLoading ? (
-            <div className="bg-white rounded-xl border border-slate-100 p-10 flex items-center justify-center">
+            <div className="bg-[#131b2e] rounded-xl border border-white/[0.06] p-10 flex items-center justify-center">
               <div className="flex flex-col items-center gap-2">
                 <div className="w-6 h-6 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
                 <span className="text-sm text-slate-400">Loading chart…</span>
@@ -205,27 +205,27 @@ export function StockDrawer({ stock, onClose }: StockDrawerProps) {
 
           {/* Last Earnings */}
           {lastEarnings.epsActual != null && lastEarnings.epsEstimate != null && (
-            <div className={`rounded-xl p-4 border ${lastEarnings.beat ? "bg-emerald-50 border-emerald-200" : "bg-red-50 border-red-200"}`}>
+            <div className={`rounded-xl p-4 border ${lastEarnings.beat ? "bg-emerald-500/10 border-emerald-500/20" : "bg-red-500/10 border-red-500/20"}`}>
               <div className="flex items-center gap-2 mb-2">
-                {lastEarnings.beat ? <TrendingUp size={16} className="text-emerald-600" /> : <TrendingDown size={16} className="text-red-600" />}
-                <span className={`text-sm font-semibold ${lastEarnings.beat ? "text-emerald-700" : "text-red-700"}`}>
+                {lastEarnings.beat ? <TrendingUp size={16} className="text-emerald-400" /> : <TrendingDown size={16} className="text-red-400" />}
+                <span className={`text-sm font-semibold ${lastEarnings.beat ? "text-emerald-400" : "text-red-400"}`}>
                   {lastEarnings.beat ? "Beat Estimate" : "Missed Estimate"}
                   {lastEarnings.reportDate ? ` — ${lastEarnings.reportDate}` : ""}
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <div className="text-xs text-slate-500 mb-0.5">Actual EPS</div>
-                  <div className="text-sm font-bold text-slate-900">${lastEarnings.epsActual.toFixed(2)}</div>
+                  <div className="text-xs text-slate-400 mb-0.5">Actual EPS</div>
+                  <div className="text-sm font-bold text-white">${lastEarnings.epsActual.toFixed(2)}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-slate-500 mb-0.5">Est. EPS</div>
-                  <div className="text-sm font-bold text-slate-900">${lastEarnings.epsEstimate.toFixed(2)}</div>
+                  <div className="text-xs text-slate-400 mb-0.5">Est. EPS</div>
+                  <div className="text-sm font-bold text-white">${lastEarnings.epsEstimate.toFixed(2)}</div>
                 </div>
                 {lastEarnings.surprisePct != null && (
                   <div>
-                    <div className="text-xs text-slate-500 mb-0.5">Surprise</div>
-                    <div className={`text-sm font-bold ${lastEarnings.surprisePct >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                    <div className="text-xs text-slate-400 mb-0.5">Surprise</div>
+                    <div className={`text-sm font-bold ${lastEarnings.surprisePct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                       {(lastEarnings.surprisePct * 100).toFixed(1)}%
                     </div>
                   </div>
@@ -256,10 +256,10 @@ export function StockDrawer({ stock, onClose }: StockDrawerProps) {
           {/* 52-week range */}
           {stock.fiftyTwoWeekHigh != null && stock.fiftyTwoWeekLow != null && (
             <Section title="52-Week Range">
-              <div className="relative h-2 bg-slate-100 rounded-full my-3">
+              <div className="relative h-2 bg-white/[0.08] rounded-full my-3">
                 {stock.price != null && (
                   <div
-                    className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-amber-400 rounded-full border-2 border-white shadow"
+                    className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-amber-400 rounded-full border-2 border-[#0d1117] shadow"
                     style={{
                       left: `${Math.min(Math.max(((stock.price - stock.fiftyTwoWeekLow) / (stock.fiftyTwoWeekHigh - stock.fiftyTwoWeekLow)) * 100, 0), 100)}%`,
                       transform: "translate(-50%, -50%)",
@@ -269,7 +269,7 @@ export function StockDrawer({ stock, onClose }: StockDrawerProps) {
               </div>
               <div className="flex justify-between text-xs text-slate-500 tabular-nums">
                 <span>{fmtPrice(stock.fiftyTwoWeekLow, stock.symbol, stock.currency)}</span>
-                <span className="font-medium text-slate-700">Current: {fmtPrice(stock.price, stock.symbol, stock.currency)}</span>
+                <span className="font-medium text-slate-300">Current: {fmtPrice(stock.price, stock.symbol, stock.currency)}</span>
                 <span>{fmtPrice(stock.fiftyTwoWeekHigh, stock.symbol, stock.currency)}</span>
               </div>
             </Section>
@@ -293,16 +293,16 @@ export function StockDrawer({ stock, onClose }: StockDrawerProps) {
           </Section>
 
           {stock.nextEarnings && (
-            <div className="flex items-center gap-2 text-sm text-slate-600 bg-amber-50 border border-amber-200 rounded-xl p-3">
-              <ChevronRight size={14} className="text-amber-500" />
-              <span>Next earnings report: <strong className="text-slate-900">{stock.nextEarnings}</strong></span>
+            <div className="flex items-center gap-2 text-sm text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">
+              <ChevronRight size={14} className="text-amber-400" />
+              <span>Next earnings report: <strong className="text-white">{stock.nextEarnings}</strong></span>
             </div>
           )}
 
           {/* AI Insight */}
           <AIInsight stock={stock} />
 
-          <p className="text-xs text-slate-400 pb-4">
+          <p className="text-xs text-slate-500 pb-4">
             ⚠️ Automated data analysis only. NOT investment advice.
           </p>
         </div>
@@ -315,10 +315,10 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
   return (
     <div>
       <div className="mb-3">
-        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{title}</h3>
-        {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
+        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{title}</h3>
+        {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
       </div>
-      <div className="bg-slate-50 rounded-xl divide-y divide-slate-100">
+      <div className="bg-[#131b2e] rounded-xl divide-y divide-white/[0.05]">
         {children}
       </div>
     </div>
@@ -336,19 +336,19 @@ function MetricRow({
   flagColor?: "green" | "amber" | "red";
 }) {
   const flagCls =
-    flagColor === "green" ? "text-emerald-600 bg-emerald-50"
-    : flagColor === "amber" ? "text-amber-600 bg-amber-50"
-    : "text-red-600 bg-red-50";
+    flagColor === "green" ? "text-emerald-400 bg-emerald-500/10"
+    : flagColor === "amber" ? "text-amber-400 bg-amber-500/10"
+    : "text-red-400 bg-red-500/10";
 
   return (
     <div className="flex items-center justify-between px-4 py-2.5 gap-4">
-      <span className="text-sm text-slate-500 shrink-0">{label}</span>
+      <span className="text-sm text-slate-400 shrink-0">{label}</span>
       <div className="flex items-center gap-2 text-right">
         <div>
-          <span className={`text-sm font-semibold tabular-nums ${positive === true ? "text-emerald-700" : positive === false ? "text-red-700" : "text-slate-900"}`}>
+          <span className={`text-sm font-semibold tabular-nums ${positive === true ? "text-emerald-400" : positive === false ? "text-red-400" : "text-slate-100"}`}>
             {value}
           </span>
-          {sub && <div className="text-xs text-slate-400">{sub}</div>}
+          {sub && <div className="text-xs text-slate-500">{sub}</div>}
         </div>
         {flag && (
           <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${flagCls}`}>{flag}</span>

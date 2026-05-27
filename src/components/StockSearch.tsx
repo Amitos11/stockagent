@@ -61,7 +61,7 @@ export function StockSearch({ weights, onResult, cachedSymbols = [] }: StockSear
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Any ticker: AAPL, NVDA, TEVA, POLI.TA…"
-            className="w-full pl-9 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+            className="w-full pl-9 pr-4 py-2.5 text-sm rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 bg-[#131b2e] border border-white/10 text-slate-100 placeholder:text-slate-500"
             aria-label="Stock ticker"
           />
         </div>
