@@ -676,18 +676,37 @@ function WeightSlider({
         <span className="text-xs font-semibold" style={{ color: "rgba(148,163,184,0.6)" }}>{label}</span>
         <span className="text-xs font-black tabular-nums" style={{ color }}>{value}%</span>
       </div>
-      <div className="relative h-1.5 rounded-full mb-2" style={{ background: "rgba(255,255,255,0.06)" }}>
-        <div
-          className="h-full rounded-full transition-all"
-          style={{ width: `${value}%`, background: color, boxShadow: `0 0 8px ${color}60` }}
-        />
+      <div className="flex items-center gap-1.5">
+        {/* Left arrow */}
+        <button
+          onClick={() => onChange(Math.max(0, value - 1))}
+          className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-base leading-none hover:bg-white/10 active:scale-90 transition-all cursor-pointer"
+          style={{ color: "rgba(148,163,184,0.55)" }}
+          aria-label={`Decrease ${label}`}
+        >‹</button>
+
+        {/* Bar + invisible range input */}
+        <div className="relative flex-1 h-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
+          <div
+            className="h-full rounded-full transition-all"
+            style={{ width: `${value}%`, background: color, boxShadow: `0 0 8px ${color}60` }}
+          />
+          <input
+            type="range" min={0} max={100} value={value}
+            onChange={(e) => onChange(Number(e.target.value))}
+            className="absolute inset-0 w-full opacity-0 cursor-pointer"
+            aria-label={`${label} weight`}
+          />
+        </div>
+
+        {/* Right arrow */}
+        <button
+          onClick={() => onChange(Math.min(100, value + 1))}
+          className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-base leading-none hover:bg-white/10 active:scale-90 transition-all cursor-pointer"
+          style={{ color: "rgba(148,163,184,0.55)" }}
+          aria-label={`Increase ${label}`}
+        >›</button>
       </div>
-      <input
-        type="range" min={0} max={100} value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full cursor-pointer opacity-0 h-1.5 mt-[-6px] relative"
-        aria-label={`${label} weight`}
-      />
     </div>
   );
 }
