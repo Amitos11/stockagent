@@ -40,11 +40,16 @@ export interface StockRow {
   fiftyTwoWeekHigh?: number;
   fiftyTwoWeekLow?: number;
   nextEarnings?: string;
-  // Scores
+  // Scores — weighted contributions (sum to `score`)
   scoreGrowth?: number;
   scoreProfitability?: number;
   scoreValuation?: number;
   score?: number;
+  // Raw pillar quality on a 0–100 scale, independent of weight.
+  // Used by the drawer pillars and for instant client-side re-ranking.
+  qualityGrowth?: number;
+  qualityProfitability?: number;
+  qualityValuation?: number;
   insight?: string;
   // Enrichment (Top 10 only)
   news?: NewsItem[];
