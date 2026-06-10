@@ -57,6 +57,7 @@ export interface StockRow {
   quarterly?: QuarterlyData;
   forecasts?: ForwardEstimates;
   lastEarnings?: EarningsHistory;
+  analyst?: AnalystData;
   // Value investing flags
   isValuePlay?: boolean;
   rank?: number;
@@ -107,6 +108,15 @@ export interface EarningsHistory {
   epsDifference?: number;
   surprisePct?: number;
   beat?: boolean;
+}
+
+export interface AnalystData {
+  targetMean?: number | null;
+  targetHigh?: number | null;
+  targetLow?: number | null;
+  numAnalysts?: number | null;
+  recommendationKey?: string;
+  recommendationMean?: number | null;
 }
 
 export interface ScanWeights {

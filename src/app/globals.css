@@ -355,6 +355,9 @@ input[type="range"]::-moz-range-thumb { width: 17px; height: 17px; border: none;
 .stat-k { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); font-family: var(--font-num); }
 .stat-v { font-size: 13px; font-weight: 500; }
 .range-52 { margin-top: 14px; }
+.analyst-target { padding: 13px 16px; border-radius: 13px; background: rgba(255,255,255,.025); border: 1px solid rgba(255,255,255,.05); }
+.analyst-target-main { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.analyst-target-price { font-size: 1.15rem; font-weight: 600; color: var(--ink); }
 .range-track { position: relative; height: 5px; border-radius: 99px; margin-top: 10px; background: linear-gradient(90deg, rgba(248,113,113,.35), rgba(251,191,36,.3), rgba(52,211,153,.4)); }
 .range-marker { position: absolute; top: 50%; width: 13px; height: 13px; border-radius: 50%; transform: translate(-50%, -50%); background: radial-gradient(circle at 35% 30%, #fff, #c7d2fe 65%); box-shadow: 0 0 10px rgba(199,210,254,.8); }
 .range-ends { display: flex; justify-content: space-between; margin-top: 8px; font-size: 10.5px; color: var(--faint); }

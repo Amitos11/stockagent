@@ -13,6 +13,14 @@ function fmtCap(mc?: number | null) {
   if (mc >= 1e9)  return `$${(mc / 1e9).toFixed(1)}B`;
   return `$${(mc / 1e6).toFixed(1)}M`;
 }
+const RECO_LABEL: Record<string, { label: string; tone: string }> = {
+  strong_buy:   { label: "Strong Buy",   tone: "#34d399" },
+  buy:          { label: "Buy",          tone: "#34d399" },
+  hold:         { label: "Hold",         tone: "#fbbf24" },
+  underperform: { label: "Underperform", tone: "#f87171" },
+  sell:         { label: "Sell",         tone: "#f87171" },
+};
+
 // Absolute money — handles negatives (net loss) and small/large magnitudes.
 function fmtMoney(v?: number | null) {
   if (v == null) return "—";
@@ -448,6 +456,78 @@ export function StockDrawer({ stock, weights, sectorPEMap, onClose, watched, onT
             </div>
           </div>
         </section>
+
+        {(() => {
+          const a = detail.analyst;
+          const f = detail.forecasts;
+          const price = detail.price;
+          const hasTarget = a?.targetMean != null && a.targetMean > 0;
+          const hasForecast = f && (f.nextQEps != null || f.nextYRevenue != null);
+          const reco = a?.recommendationKey ? RECO_LABEL[a.recommendationKey] : undefined;
+          if (!hasTarget && !hasForecast && !reco) return null;
+
+          const upside = hasTarget && price ? ((a!.targetMean! - price) / price) * 100 : null;
+          const gp = (g?: number | null) =>
+            g != null ? ` (${g >= 0 ? "+" : ""}${(g * 100).toFixed(1)}%)` : "";
+
+          return (
+            <section className="drawer-sec">
+              <h3 className="drawer-sec-title">Analyst outlook</h3>
+
+              {hasTarget ? (
+                <div className="analyst-target">
+                  <div className="analyst-target-main">
+                    <span className="stat-k">Mean price target</span>
+                    <span className="analyst-target-price num">
+                      {fmtPrice(a!.targetMean ?? undefined, stock.symbol, stock.currency)}
+                      {upside != null ? (
+                        <span className="num" style={{ color: upside >= 0 ? "#34d399" : "#f87171", fontSize: "0.78rem", marginInlineStart: 8 }}>
+                          {upside >= 0 ? "▲" : "▼"} {Math.abs(upside).toFixed(1)}% vs price
+                        </span>
+                      ) : null}
+                    </span>
+                  </div>
+                  <div className="range-ends num" style={{ marginTop: 8 }}>
+                    <span>{fmtPrice(a!.targetLow ?? undefined, stock.symbol, stock.currency)}</span>
+                    <span className="dim">{a!.numAnalysts ? `${a!.numAnalysts} analysts` : ""}</span>
+                    <span>{fmtPrice(a!.targetHigh ?? undefined, stock.symbol, stock.currency)}</span>
+                  </div>
+                  {reco ? (
+                    <div style={{ marginTop: 10 }}>
+                      <span className="earn-badge" style={{ color: reco.tone, borderColor: reco.tone + "66", background: reco.tone + "14" }}>
+                        {reco.label}{a?.recommendationMean != null ? ` · ${a.recommendationMean.toFixed(1)}/5` : ""}
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {hasForecast ? (
+                <>
+                  <p className="stat-k" style={{ marginTop: hasTarget ? 14 : 0 }}>Forward estimates</p>
+                  <div className="stat-grid">
+                    <div className="stat-cell">
+                      <span className="stat-k">Next Q EPS</span>
+                      <span className="stat-v num">{f!.nextQEps != null ? `$${f!.nextQEps.toFixed(2)}` : "—"}{gp(f!.nextQEpsGrowth)}</span>
+                    </div>
+                    <div className="stat-cell">
+                      <span className="stat-k">Next Q rev</span>
+                      <span className="stat-v num">{fmtMoney(f!.nextQRevenue)}{gp(f!.nextQRevenueGrowth)}</span>
+                    </div>
+                    <div className="stat-cell">
+                      <span className="stat-k">Next Y EPS</span>
+                      <span className="stat-v num">{f!.nextYEps != null ? `$${f!.nextYEps.toFixed(2)}` : "—"}{gp(f!.nextYEpsGrowth)}</span>
+                    </div>
+                    <div className="stat-cell">
+                      <span className="stat-k">Next Y rev</span>
+                      <span className="stat-v num">{fmtMoney(f!.nextYRevenue)}{gp(f!.nextYRevenueGrowth)}</span>
+                    </div>
+                  </div>
+                </>
+              ) : null}
+            </section>
+          );
+        })()}
 
         <section className="drawer-sec">
           <h3 className="drawer-sec-title">AI insight</h3>
