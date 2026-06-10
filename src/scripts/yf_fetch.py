@@ -826,22 +826,26 @@ def fetch_candles(symbol: str) -> list:
 
 # ── earnings beat/miss (slim batch) ──────────────────────────────────────────────
 
-def _earnings_one(symbol: str):
-    """Latest quarter's EPS actual vs estimate → beat/miss. Slim: earnings_history only."""
-    try:
-        eh = yf.Ticker(symbol).earnings_history
-        if eh is not None and not eh.empty:
-            latest = eh.iloc[-1]
-            actual = sf(latest.get("epsActual"))
-            est    = sf(latest.get("epsEstimate"))
-            if actual is not None and est is not None:
-                return symbol, {
-                    "epsActual": actual, "epsEstimate": est,
-                    "surprisePct": sf(latest.get("surprisePercent")),
-                    "beat": actual >= est,
-                }
-    except Exception:
-        pass
+def _earnings_one(symbol: str, retries: int = 2):
+    """Latest quarter's EPS actual vs estimate → beat/miss. Slim: earnings_history only.
+    Yahoo intermittently returns empty on datacenter IPs, so retry a couple times."""
+    for attempt in range(retries + 1):
+        try:
+            eh = yf.Ticker(symbol).earnings_history
+            if eh is not None and not eh.empty:
+                latest = eh.iloc[-1]
+                actual = sf(latest.get("epsActual"))
+                est    = sf(latest.get("epsEstimate"))
+                if actual is not None and est is not None:
+                    return symbol, {
+                        "epsActual": actual, "epsEstimate": est,
+                        "surprisePct": sf(latest.get("surprisePercent")),
+                        "beat": actual >= est,
+                    }
+        except Exception:
+            pass
+        if attempt < retries:
+            time.sleep(0.4)
     return symbol, None
 
 
@@ -887,8 +891,20 @@ def fetch_news(symbol: str) -> list:
 def fetch_enrich(symbol: str) -> dict:
     out = {}
     try:
-        ticker   = yf.Ticker(symbol)
-        info     = ticker.info or {}
+        ticker = yf.Ticker(symbol)
+        # ticker.info flakes (empty) intermittently on datacenter IPs — retry
+        # until it carries the analyst fields we need.
+        info = {}
+        for attempt in range(3):
+            try:
+                info = ticker.info or {}
+            except Exception:
+                info = {}
+            if info.get("recommendationKey") or info.get("targetMeanPrice") or info.get("companyOfficers"):
+                break
+            if attempt < 2:
+                time.sleep(0.4)
+                ticker = yf.Ticker(symbol)
         officers = info.get("companyOfficers") or []
         ceo = cfo = None
         for o in officers:
