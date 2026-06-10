@@ -779,17 +779,48 @@ def fetch_candles(symbol: str) -> list:
         except Exception as e:
             print(f"[fmp candles] {e}", file=sys.stderr, flush=True)
 
+    # Yahoo chart API — same no-crumb endpoint the scan uses. yf.Ticker().history()
+    # hits Yahoo's download endpoint that requires a crumb/cookie and is blocked on
+    # datacenter IPs (Render), so it returned empty in production. The chart API
+    # returns full OHLC arrays and works there.
     try:
-        hist = yf.Ticker(symbol).history(period="1mo")
-        if hist.empty:
+        from datetime import datetime, timezone
+        sess = _cffi_session or _session
+        chart = sess.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
+            params={"range": "6mo", "interval": "1d"},
+            timeout=15,
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+        )
+        if not chart.ok:
             return []
-        return [
-            {"time": dt.strftime("%Y-%m-%d"), "open": round(float(r["Open"]),4),
-             "high": round(float(r["High"]),4), "low": round(float(r["Low"]),4),
-             "close": round(float(r["Close"]),4)}
-            for dt, r in hist.iterrows()
-        ]
-    except Exception:
+        result = (((chart.json() or {}).get("chart") or {}).get("result") or [])
+        if not result:
+            return []
+        res = result[0] or {}
+        stamps = res.get("timestamp") or []
+        quote = (((res.get("indicators") or {}).get("quote") or [{}])[0]) or {}
+        opens  = quote.get("open")  or []
+        highs  = quote.get("high")  or []
+        lows   = quote.get("low")   or []
+        closes = quote.get("close") or []
+        candles = []
+        for i, ut in enumerate(stamps):
+            try:
+                o, h, lo, c = opens[i], highs[i], lows[i], closes[i]
+            except IndexError:
+                continue
+            if None in (o, h, lo, c):
+                continue
+            day = datetime.fromtimestamp(ut, tz=timezone.utc).strftime("%Y-%m-%d")
+            candles.append({
+                "time": day,
+                "open": round(float(o), 4), "high": round(float(h), 4),
+                "low":  round(float(lo), 4), "close": round(float(c), 4),
+            })
+        return candles
+    except Exception as e:
+        print(f"[chart candles] {e}", file=sys.stderr, flush=True)
         return []
 
 

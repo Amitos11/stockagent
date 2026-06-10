@@ -92,7 +92,7 @@ const UNIVERSE: Record<Exclude<SectorKey, "TASE">, string[]> = {
   // Energy — integrated, E&P, services & midstream
   Energy: [
     "XOM", "CVX", "COP", "SLB", "EOG", "MPC", "PSX", "VLO", "OXY", "WMB",
-    "KMI", "OKE", "HES", "DVN", "FANG", "HAL", "BKR", "TRGP", "CTRA",
+    "KMI", "OKE", "HES", "DVN", "FANG", "HAL", "BKR", "TRGP",
     "APA", "EQT", "LNG", "ET", "EPD", "MPLX", "PAA", "FSLR", "ENPH",
     "FE", "EIX",
   ],
