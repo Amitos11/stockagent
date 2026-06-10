@@ -13,6 +13,17 @@ function fmtCap(mc?: number | null) {
   if (mc >= 1e9)  return `$${(mc / 1e9).toFixed(1)}B`;
   return `$${(mc / 1e6).toFixed(1)}M`;
 }
+// Absolute money — handles negatives (net loss) and small/large magnitudes.
+function fmtMoney(v?: number | null) {
+  if (v == null) return "—";
+  const sign = v < 0 ? "-" : "";
+  const a = Math.abs(v);
+  if (a >= 1e12) return `${sign}$${(a / 1e12).toFixed(2)}T`;
+  if (a >= 1e9)  return `${sign}$${(a / 1e9).toFixed(2)}B`;
+  if (a >= 1e6)  return `${sign}$${(a / 1e6).toFixed(1)}M`;
+  if (a >= 1e3)  return `${sign}$${(a / 1e3).toFixed(1)}K`;
+  return `${sign}$${a.toFixed(0)}`;
+}
 
 /* ── Candlestick canvas ───────────────────────────────────────────────────── */
 function Candles({ symbol, price }: { symbol: string; price?: number }) {
@@ -150,6 +161,9 @@ interface Props {
 
 export function StockDrawer({ stock, weights, sectorPEMap, onClose, watched, onToggleWatch }: Props) {
   const [visible, setVisible] = useState(false);
+  // The scan row carries TTM figures but no quarterly/news detail. Fetch the
+  // enriched record so reported financials and the latest quarter can show.
+  const [detail, setDetail] = useState<StockRow>(stock);
 
   useEffect(() => {
     requestAnimationFrame(() => requestAnimationFrame(() => setVisible(true)));
@@ -157,6 +171,18 @@ export function StockDrawer({ stock, weights, sectorPEMap, onClose, watched, onT
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  useEffect(() => {
+    setDetail(stock);
+    let cancelled = false;
+    fetch(`/api/stock/${stock.symbol}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: StockRow | null) => {
+        if (!cancelled && d && !d.error) setDetail((prev) => ({ ...prev, ...d }));
+      })
+      .catch(() => { /* keep scan-row data */ });
+    return () => { cancelled = true; };
+  }, [stock.symbol]);
 
   const close = () => { setVisible(false); setTimeout(onClose, 280); };
 
@@ -170,15 +196,37 @@ export function StockDrawer({ stock, weights, sectorPEMap, onClose, watched, onT
   const read  = useMemo(() => readSynthesis(stock, flags), [stock, flags]);
   const aiText = stock.insight || aiInsightTemplate(stock);
 
+  const pct = (v?: number | null) => (v != null ? `${(v * 100).toFixed(1)}%` : "—");
+
+  // Reported absolute figures (TTM) — what the user was missing.
+  const reported: [string, string][] = [
+    ["Revenue (TTM)",    fmtMoney(detail.totalRevenue)],
+    ["Net income (TTM)", fmtMoney(detail.netIncomeTTM)],
+    ["Gross profit",     fmtMoney(detail.grossProfits)],
+    ["EBITDA",           fmtMoney(detail.ebitda)],
+    ["Op income (TTM)",  fmtMoney(detail.opIncomeTTM)],
+    ["Net margin",       pct(detail.profitMargin)],
+  ];
+
+  const q = detail.quarterly;
+  const quarterly: [string, string][] | null =
+    q && (q.qRevenue != null || q.qNetIncome != null)
+      ? [
+          ["Revenue",        fmtMoney(q.qRevenue)],
+          ["Net income",     fmtMoney(q.qNetIncome)],
+          ["Operating inc.", fmtMoney(q.qOperatingIncome)],
+        ]
+      : null;
+
   const stats: [string, string][] = [
-    ["P/E",        fmtPE(stock.peRatio)],
-    ["Fwd P/E",    fmtPE(stock.forwardPE)],
-    ["EPS growth", fmtPct(stock.earningsGrowth)],
-    ["Rev growth", fmtPct(stock.revenueGrowth)],
-    ["Op margin",  stock.operatingMargin != null ? `${(stock.operatingMargin * 100).toFixed(1)}%` : "—"],
-    ["ROE",        stock.roe != null ? `${(stock.roe * 100).toFixed(1)}%` : "—"],
-    ["Debt/Equity",stock.debtToEquity != null ? `${stock.debtToEquity.toFixed(0)}%` : "—"],
-    ["Mkt cap",    fmtCap(stock.marketCap)],
+    ["P/E",        fmtPE(detail.peRatio)],
+    ["Fwd P/E",    fmtPE(detail.forwardPE)],
+    ["EPS growth", fmtPct(detail.earningsGrowth)],
+    ["Rev growth", fmtPct(detail.revenueGrowth)],
+    ["Op margin",  detail.operatingMargin != null ? `${(detail.operatingMargin * 100).toFixed(1)}%` : "—"],
+    ["ROE",        detail.roe != null ? `${(detail.roe * 100).toFixed(1)}%` : "—"],
+    ["Debt/Equity",detail.debtToEquity != null ? `${detail.debtToEquity.toFixed(0)}%` : "—"],
+    ["Mkt cap",    fmtCap(detail.marketCap)],
   ];
 
   return (
@@ -257,7 +305,34 @@ export function StockDrawer({ stock, weights, sectorPEMap, onClose, watched, onT
         </section>
 
         <section className="drawer-sec">
-          <h3 className="drawer-sec-title">Financials</h3>
+          <h3 className="drawer-sec-title">Reported figures</h3>
+          <div className="stat-grid">
+            {reported.map(([k, v]) => (
+              <div key={k} className="stat-cell">
+                <span className="stat-k">{k}</span>
+                <span className="stat-v num">{v}</span>
+              </div>
+            ))}
+          </div>
+          {quarterly ? (
+            <>
+              <p className="stat-k" style={{ marginTop: 14 }}>
+                Latest quarter{q?.qDate ? ` · ${q.qDate}` : ""}
+              </p>
+              <div className="stat-grid">
+                {quarterly.map(([k, v]) => (
+                  <div key={k} className="stat-cell">
+                    <span className="stat-k">{k}</span>
+                    <span className="stat-v num">{v}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : null}
+        </section>
+
+        <section className="drawer-sec">
+          <h3 className="drawer-sec-title">Ratios</h3>
           <div className="stat-grid">
             {stats.map(([k, v]) => (
               <div key={k} className="stat-cell">
@@ -288,11 +363,11 @@ export function StockDrawer({ stock, weights, sectorPEMap, onClose, watched, onT
           </div>
         </section>
 
-        {stock.news && stock.news.length > 0 && (
+        {detail.news && detail.news.length > 0 && (
           <section className="drawer-sec">
             <h3 className="drawer-sec-title">News</h3>
             <div className="news-list">
-              {stock.news.map((n, i) => (
+              {detail.news.map((n, i) => (
                 <article key={i} className="news-card">
                   <p className="news-title">{n.title}</p>
                   <p className="news-meta">

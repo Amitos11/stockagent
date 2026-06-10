@@ -18,9 +18,25 @@ export async function GET(
 
   const sym = symbol.toUpperCase();
 
-  // Cache hit — return immediately (populated during scan)
+  // Cache hit with full detail — return immediately.
   const cached = getStock(sym);
-  if (cached) return NextResponse.json(cached);
+  if (cached && cached.quarterly) return NextResponse.json(cached);
+
+  // Cache hit from the scan, but a scan row has no quarterly/news detail.
+  // Enrich it once and re-cache so the drawer can show reported figures.
+  if (cached) {
+    const enrich = await fetchFullEnrich(sym);
+    const merged = {
+      ...cached,
+      news:         enrich.news,
+      management:   enrich.management,
+      quarterly:    enrich.quarterly,
+      forecasts:    enrich.forecasts,
+      lastEarnings: enrich.lastEarnings,
+    };
+    putStock(merged);
+    return NextResponse.json(merged);
+  }
 
   // Cache miss — fetch from yfinance (2 Python calls)
   const [row, enrich] = await Promise.all([
