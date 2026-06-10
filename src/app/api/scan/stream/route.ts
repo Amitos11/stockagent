@@ -7,7 +7,7 @@ import { NextRequest } from "next/server";
 import { spawn } from "child_process";
 import { join } from "path";
 import { readFileSync, writeFileSync, existsSync } from "fs";
-import { ALL_TICKERS, getSector } from "@/lib/tickers";
+import { ALL_TICKERS, ISRAELI_TICKERS, getSector } from "@/lib/tickers";
 import { hasMinData, applyScores, generateInsight, isValuePlay } from "@/lib/scoring";
 import { putStock } from "@/lib/stockCache";
 import type { ScanWeights, StockRow, ScanResult } from "@/lib/types";
@@ -100,7 +100,11 @@ export async function GET(req: NextRequest) {
   }
 
   const SCRIPT     = join(process.cwd(), "src", "scripts", "yf_fetch.py");
-  const allSymbols = Array.from(ALL_TICKERS).slice(0, limit);
+  // Take the first `limit`, then always union in the Israeli stocks — they live
+  // at the tail of the universe, so a 500-scan would otherwise drop the whole
+  // TASE block (and some Israel-NASDAQ names).
+  const base = Array.from(ALL_TICKERS).slice(0, limit);
+  const allSymbols = Array.from(new Set([...base, ...ISRAELI_TICKERS]));
 
   const stream = new ReadableStream({
     start(controller) {
