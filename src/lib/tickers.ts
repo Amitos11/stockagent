@@ -157,6 +157,12 @@ export type Ticker = (typeof ALL_TICKERS)[number];
 
 export const SECTOR_MAP: Record<string, SectorKey> = _sectorMap;
 
+/** Israeli stocks — NASDAQ-listed + TASE. They sit at the tail of ALL_TICKERS,
+ *  so a partial scan (e.g. 500) drops them; the scan always unions these in. */
+export const ISRAELI_TICKERS: string[] = ALL_TICKERS.filter(
+  (s) => _sectorMap[s] === "Israel" || _sectorMap[s] === "TASE"
+);
+
 export function getSector(symbol: string): SectorKey {
   return SECTOR_MAP[symbol] ?? (symbol.endsWith(".TA") ? "TASE" : "Tech");
 }
