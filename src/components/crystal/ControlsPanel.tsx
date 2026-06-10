@@ -48,9 +48,16 @@ interface Props {
   search: string;
   setSearch: (v: string) => void;
   tilt?: boolean;
+  onAnalyze?: (symbol: string) => void;
+  analyzing?: boolean;
+  analyzeError?: string;
+  hasExactMatch?: boolean;
 }
 
-export function ControlsPanel({ weights, setWeights, buffett, setBuffett, search, setSearch, tilt }: Props) {
+export function ControlsPanel({
+  weights, setWeights, buffett, setBuffett, search, setSearch, tilt,
+  onAnalyze, analyzing, analyzeError, hasExactMatch,
+}: Props) {
   const change = (key: keyof ScanWeights, val: number) => {
     const others = WEIGHT_META.map((m) => m.key).filter((k) => k !== key) as [keyof ScanWeights, keyof ScanWeights];
     const rest = 100 - val;
@@ -98,11 +105,29 @@ export function ControlsPanel({ weights, setWeights, buffett, setBuffett, search
         </svg>
         <input
           className="search-input"
-          placeholder="Filter by symbol or name — e.g. NVDA, Teva…"
+          placeholder="Filter, or type any ticker to analyze — e.g. NVDA, Teva…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && search.trim() && onAnalyze && !analyzing) {
+              onAnalyze(search.trim().toUpperCase());
+            }
+          }}
         />
+        {search.trim() && onAnalyze ? (
+          <button
+            type="button"
+            className="analyze-btn"
+            disabled={analyzing}
+            onClick={() => onAnalyze(search.trim().toUpperCase())}
+          >
+            {analyzing
+              ? "Analyzing…"
+              : `${hasExactMatch ? "Re-analyze" : "Analyze"} ${search.trim().toUpperCase()} →`}
+          </button>
+        ) : null}
       </label>
+      {analyzeError ? <p className="analyze-error">{analyzeError}</p> : null}
     </TiltCard>
   );
 }
