@@ -824,6 +824,39 @@ def fetch_candles(symbol: str) -> list:
         return []
 
 
+# ── earnings beat/miss (slim batch) ──────────────────────────────────────────────
+
+def _earnings_one(symbol: str):
+    """Latest quarter's EPS actual vs estimate → beat/miss. Slim: earnings_history only."""
+    try:
+        eh = yf.Ticker(symbol).earnings_history
+        if eh is not None and not eh.empty:
+            latest = eh.iloc[-1]
+            actual = sf(latest.get("epsActual"))
+            est    = sf(latest.get("epsEstimate"))
+            if actual is not None and est is not None:
+                return symbol, {
+                    "epsActual": actual, "epsEstimate": est,
+                    "surprisePct": sf(latest.get("surprisePercent")),
+                    "beat": actual >= est,
+                }
+    except Exception:
+        pass
+    return symbol, None
+
+
+def fetch_earnings_batch(symbols: list) -> dict:
+    out = {}
+    if not symbols:
+        return out
+    with ThreadPoolExecutor(max_workers=min(len(symbols), 12)) as ex:
+        for fut in as_completed([ex.submit(_earnings_one, s) for s in symbols]):
+            sym, data = fut.result()
+            if data is not None:
+                out[sym] = data
+    return out
+
+
 # ── news ───────────────────────────────────────────────────────────────────────
 
 def fetch_news(symbol: str) -> list:
@@ -941,6 +974,7 @@ if __name__ == "__main__":
     elif cmd == "batch":        print(json.dumps(fetch_batch(syms)))
     elif cmd == "stream":       stream_parallel(syms)
     elif cmd == "candles":      print(json.dumps(fetch_candles(arg)))
+    elif cmd == "earnings_batch": print(json.dumps(fetch_earnings_batch(syms)))
     elif cmd == "news":         print(json.dumps(fetch_news(arg)))
     elif cmd == "enrich":       print(json.dumps(fetch_enrich(arg)))
     elif cmd == "enrich_cache": enrich_cache(syms)

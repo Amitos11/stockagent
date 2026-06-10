@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
-import type { StockRow, ScanWeights } from "@/lib/types";
+import type { StockRow, ScanWeights, EarningsHistory } from "@/lib/types";
 import { computeWeightedScore, isValuePlay } from "@/lib/scoring";
 import { buildSectorPEMap } from "@/lib/signals";
 import { ALL_TICKERS, BUFFETT_QUOTES } from "@/lib/tickers";
@@ -61,6 +61,7 @@ export default function DashboardPage() {
   const [weights, setWeights]             = useState<ScanWeights>({ growth: 34, profitability: 33, valuation: 33 });
   const [analyzing, setAnalyzing]         = useState(false);
   const [analyzeError, setAnalyzeError]   = useState("");
+  const [earningsMap, setEarningsMap]     = useState<Record<string, EarningsHistory>>({});
 
   useEffect(() => { setWatchlist(loadWatchlist()); }, []);
 
@@ -219,6 +220,33 @@ export default function DashboardPage() {
     activeTab === "watchlist" ? watchlistRows :
     filteredRows;
 
+  // Lazy-load earnings beat/miss for the rows actually on screen (capped).
+  // Earnings data is per-stock and slow, so we never fetch it for all 500 —
+  // only the visible tab's first rows, and only symbols we haven't seen.
+  const visibleSymbols = useMemo(
+    () => tableRows.slice(0, 30).map((r) => r.symbol),
+    [tableRows]
+  );
+  useEffect(() => {
+    if (scanning) return;
+    const missing = visibleSymbols.filter((s) => !(s in earningsMap));
+    if (!missing.length) return;
+    let cancelled = false;
+    fetch(`/api/earnings?symbols=${encodeURIComponent(missing.join(","))}`)
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((data: Record<string, EarningsHistory>) => {
+        if (cancelled) return;
+        // Record every requested symbol (even ones with no data) so we don't refetch.
+        setEarningsMap((prev) => {
+          const next = { ...prev };
+          for (const s of missing) next[s] = data[s] ?? {};
+          return next;
+        });
+      })
+      .catch(() => { /* leave unmarked */ });
+    return () => { cancelled = true; };
+  }, [visibleSymbols, scanning]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const emptyHint =
     !liveRows.length && !scanning          ? "Run a scan to see results" :
     activeTab === "watchlist" && !watchlistRows.length ? "Star stocks to build your watchlist" :
@@ -279,6 +307,7 @@ export default function DashboardPage() {
                 onToggleWatch={toggleWatch}
                 sectorPEMap={sectorPEMap}
                 emptyHint={emptyHint}
+                earningsMap={earningsMap}
               />
             )}
           </>
