@@ -7,7 +7,7 @@ import { NextRequest } from "next/server";
 import { spawn } from "child_process";
 import { join } from "path";
 import { readFileSync, writeFileSync, existsSync } from "fs";
-import { ALL_TICKERS } from "@/lib/tickers";
+import { ALL_TICKERS, getSector } from "@/lib/tickers";
 import { hasMinData, applyScores, generateInsight, isValuePlay } from "@/lib/scoring";
 import { putStock } from "@/lib/stockCache";
 import type { ScanWeights, StockRow, ScanResult } from "@/lib/types";
@@ -132,6 +132,10 @@ export async function GET(req: NextRequest) {
           if (!trimmed) continue;
           try {
             const row = JSON.parse(trimmed) as StockRow;
+            // yfinance often returns an empty sector. Backfill from the local
+            // ticker→sector map so the UI's sector colours, chips, breakdown
+            // and heatmap all work.
+            if (!row.sector) row.sector = getSector(row.symbol);
             allRows.push(row);
             let enriched = row;
             if (hasMinData(row)) {

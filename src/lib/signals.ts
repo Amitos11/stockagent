@@ -1,13 +1,17 @@
 import type { StockRow } from "./types";
 
+// Keys match the SectorKey values produced by getSector() in tickers.ts.
 export const SECTOR_COLORS: Record<string, string> = {
-  Tech: "#818cf8",
-  Semis: "#a78bfa",
+  Tech: "#6366f1",
+  Semis: "#8b5cf6",
   Software: "#22d3ee",
-  Finance: "#60a5fa",
-  Health: "#34d399",
-  Energy: "#fb923c",
-  Industrials: "#94a3b8",
+  Healthcare: "#10b981",
+  Consumer: "#f59e0b",
+  Finance: "#3b82f6",
+  Energy: "#f97316",
+  Industrial: "#94a3b8",
+  Israel: "#60a5fa",
+  TASE: "#34d399",
 };
 
 export function scoreColor(score: number): string {

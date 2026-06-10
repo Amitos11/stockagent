@@ -90,37 +90,34 @@ export default function DashboardPage() {
     setHeroCollapsed(true);
 
     const params = new URLSearchParams({
-      growth:        String(weights.growth),
-      profitability: String(weights.profitability),
-      valuation:     String(weights.valuation),
-      limit:         scanSize === "All" ? "9999" : String(scanSize),
+      weights: `${weights.growth},${weights.profitability},${weights.valuation}`,
+      market: marketFilter === "All" ? "" : marketFilter,
+      limit: scanSize === "All" ? "9999" : String(scanSize),
     });
 
     const es = new EventSource(`/api/scan/stream?${params}`);
     const accumulated: StockRow[] = [];
 
-    // Server sends unnamed SSE events — all arrive as "message" with {type, data}
-    es.onmessage = (e) => {
-      const { type, data } = JSON.parse(e.data) as { type: string; data?: unknown };
+    es.addEventListener("stock", (e) => {
+      const row: StockRow = JSON.parse((e as MessageEvent).data);
+      const idx = accumulated.findIndex((r) => r.symbol === row.symbol);
+      if (idx >= 0) accumulated[idx] = row; else accumulated.push(row);
+      const sorted = [...accumulated].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+      setPartialRows(sorted);
+      setNewestSymbol(row.symbol);
+      setProgress(accumulated.length / totalTickers);
+    });
 
-      if (type === "stock") {
-        const row: StockRow = (data as { row: StockRow }).row;
-        const idx = accumulated.findIndex((r) => r.symbol === row.symbol);
-        if (idx >= 0) accumulated[idx] = row; else accumulated.push(row);
-        const sorted = [...accumulated].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-        setPartialRows(sorted);
-        setNewestSymbol(row.symbol);
-        const total = (data as { total?: number }).total ?? totalTickers;
-        if (total > 0) setProgress(accumulated.length / total);
-      } else if (type === "complete") {
-        es.close();
-        setScanning(false);
-        setProgress(1);
-      } else if (type === "error") {
-        es.close();
-        setScanning(false);
-      }
-    };
+    es.addEventListener("progress", (e) => {
+      const { done, total } = JSON.parse((e as MessageEvent).data);
+      if (total > 0) setProgress(done / total);
+    });
+
+    es.addEventListener("complete", () => {
+      es.close();
+      setScanning(false);
+      setProgress(1);
+    });
 
     es.onerror = () => { es.close(); setScanning(false); };
   }, [scanning, weights, marketFilter, scanSize, totalTickers]);
