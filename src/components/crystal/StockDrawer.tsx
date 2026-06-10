@@ -26,16 +26,8 @@ function fmtMoney(v?: number | null) {
 }
 
 /* ── Candlestick canvas ───────────────────────────────────────────────────── */
-function Candles({ symbol, price }: { symbol: string; price?: number }) {
+function Candles({ symbol, candles }: { symbol: string; candles: CandleData[] }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const [candles, setCandles] = useState<CandleData[]>([]);
-
-  useEffect(() => {
-    fetch(`/api/candles/${symbol}`)
-      .then((r) => r.ok ? r.json() : [])
-      .then(setCandles)
-      .catch(() => setCandles([]));
-  }, [symbol]);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -111,8 +103,87 @@ function Candles({ symbol, price }: { symbol: string; price?: number }) {
     <canvas
       ref={ref}
       className="candle-canvas"
-      aria-label={`One month candlestick chart for ${symbol}`}
+      aria-label={`Six month candlestick chart for ${symbol}`}
     />
+  );
+}
+
+/* ── 8-week price trend (real, from candle closes) ────────────────────────── */
+function EightWeekTrend({ candles }: { candles: CandleData[] }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+
+  // ~8 weeks ≈ 40 trading days of daily closes.
+  const window = useMemo(() => candles.slice(-40), [candles]);
+  const pct = useMemo(() => {
+    if (window.length < 2) return null;
+    const first = window[0].close, last = window[window.length - 1].close;
+    if (!first) return null;
+    return ((last - first) / first) * 100;
+  }, [window]);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas || window.length < 2) return;
+    const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    const ctx = canvas.getContext("2d")!;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const closes = window.map((c) => c.close);
+    const lo = Math.min(...closes), hi = Math.max(...closes);
+    const pad = (hi - lo) * 0.15 || 1;
+    const x = (i: number) => (i / (closes.length - 1)) * (w - 6) + 3;
+    const y = (v: number) => h - 4 - ((v - lo + pad) / (hi - lo + pad * 2)) * (h - 8);
+    const up = (pct ?? 0) >= 0;
+    const col = up ? "#34d399" : "#f87171";
+
+    // area fill
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, col + "44");
+    grad.addColorStop(1, col + "00");
+    ctx.beginPath();
+    ctx.moveTo(x(0), y(closes[0]));
+    closes.forEach((v, i) => ctx.lineTo(x(i), y(v)));
+    ctx.lineTo(x(closes.length - 1), h);
+    ctx.lineTo(x(0), h);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // line
+    ctx.beginPath();
+    ctx.moveTo(x(0), y(closes[0]));
+    closes.forEach((v, i) => ctx.lineTo(x(i), y(v)));
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1.6;
+    ctx.shadowColor = col; ctx.shadowBlur = 6;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // last dot
+    ctx.beginPath();
+    ctx.arc(x(closes.length - 1), y(closes[closes.length - 1]), 2.6, 0, Math.PI * 2);
+    ctx.fillStyle = col;
+    ctx.fill();
+  }, [window, pct]);
+
+  if (window.length < 2 || pct == null) {
+    return <span className="num dim" style={{ fontSize: "0.8rem" }}>Not enough price history</span>;
+  }
+
+  const up = pct >= 0;
+  return (
+    <div className="trend8-wrap">
+      <canvas ref={ref} className="trend8-spark" aria-label="8-week price trend" />
+      <div className="trend8-meta">
+        <span className={`num ${up ? "pos" : "neg"}`} style={{ color: up ? "#34d399" : "#f87171", fontWeight: 600 }}>
+          {up ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}%
+        </span>
+        <span className="num dim" style={{ fontSize: "0.72rem" }}>over ~8 weeks</span>
+      </div>
+    </div>
   );
 }
 
@@ -164,6 +235,8 @@ export function StockDrawer({ stock, weights, sectorPEMap, onClose, watched, onT
   // The scan row carries TTM figures but no quarterly/news detail. Fetch the
   // enriched record so reported financials and the latest quarter can show.
   const [detail, setDetail] = useState<StockRow>(stock);
+  // Candles power both the chart and the real 8-week price trend.
+  const [candles, setCandles] = useState<CandleData[]>([]);
 
   useEffect(() => {
     requestAnimationFrame(() => requestAnimationFrame(() => setVisible(true)));
@@ -181,6 +254,16 @@ export function StockDrawer({ stock, weights, sectorPEMap, onClose, watched, onT
         if (!cancelled && d && !d.error) setDetail((prev) => ({ ...prev, ...d }));
       })
       .catch(() => { /* keep scan-row data */ });
+    return () => { cancelled = true; };
+  }, [stock.symbol]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCandles([]);
+    fetch(`/api/candles/${stock.symbol}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((c: CandleData[]) => { if (!cancelled) setCandles(Array.isArray(c) ? c : []); })
+      .catch(() => { if (!cancelled) setCandles([]); });
     return () => { cancelled = true; };
   }, [stock.symbol]);
 
@@ -260,21 +343,18 @@ export function StockDrawer({ stock, weights, sectorPEMap, onClose, watched, onT
         </div>
 
         <section className="drawer-sec">
-          <h3 className="drawer-sec-title">Last month</h3>
-          <Candles symbol={stock.symbol} price={stock.price} />
+          <h3 className="drawer-sec-title">Last 6 months</h3>
+          <Candles symbol={stock.symbol} candles={candles} />
+        </section>
+
+        <section className="drawer-sec">
+          <h3 className="drawer-sec-title">8-week price trend</h3>
+          <EightWeekTrend candles={candles} />
         </section>
 
         <section className="drawer-sec">
           <h3 className="drawer-sec-title">Score pillars</h3>
           <Pillars stock={stock} weights={weights} />
-        </section>
-
-        {/* Feature 2 (8-week trend) deferred */}
-        <section className="drawer-sec">
-          <h3 className="drawer-sec-title">8-week score trend</h3>
-          <div className="trend-row">
-            <span className="num dim" style={{ fontSize: "0.8rem" }}>Historical trend data coming soon</span>
-          </div>
         </section>
 
         <section className="drawer-sec">
