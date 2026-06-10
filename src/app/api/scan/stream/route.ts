@@ -19,7 +19,7 @@ const CACHE_FILE   = join(process.cwd(), ".scan-cache.json");
 const CACHE_TTL_MS = 120 * 60 * 1000; // 2 hours — first scan ~90s, then instant
 const memCache     = new Map<string, CacheEntry>();
 
-function cacheKey(w: ScanWeights) { return `${w.growth}:${w.profitability}:${w.valuation}`; }
+function cacheKey(w: ScanWeights, limit: number) { return `${w.growth}:${w.profitability}:${w.valuation}@${limit}`; }
 
 function loadCache() {
   try {
@@ -79,7 +79,14 @@ export async function GET(req: NextRequest) {
     valuation:     Number(sp.get("valuation")     ?? 34),
   };
 
-  const key = cacheKey(weights);
+  // How many tickers to scan. Larger = slower but broader coverage.
+  // Clamp to [1, full universe]; default to the full universe.
+  const rawLimit = Number(sp.get("limit"));
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0
+    ? Math.min(Math.floor(rawLimit), ALL_TICKERS.length)
+    : ALL_TICKERS.length;
+
+  const key = cacheKey(weights, limit);
   const cached = memCache.get(key);
   if (cached && cached.expiresAt > Date.now()) {
     const body = sseEvent("complete", cached.result as unknown as Record<string, unknown>);
@@ -93,7 +100,7 @@ export async function GET(req: NextRequest) {
   }
 
   const SCRIPT     = join(process.cwd(), "src", "scripts", "yf_fetch.py");
-  const allSymbols = Array.from(ALL_TICKERS);
+  const allSymbols = Array.from(ALL_TICKERS).slice(0, limit);
 
   const stream = new ReadableStream({
     start(controller) {
@@ -144,8 +151,10 @@ export async function GET(req: NextRequest) {
       py.on("close", () => {
         const result = buildResult(allRows, weights);
         // Never cache an empty/price-only scan. That was the source of the
-        // "everything is broken until redeploy" behavior.
-        if (result.valid.length >= 20) {
+        // "everything is broken until redeploy" behavior. For small scans the
+        // bar scales down so a 100-ticker run can still be cached.
+        const cacheThreshold = Math.min(20, Math.max(5, Math.floor(allSymbols.length / 2)));
+        if (result.valid.length >= cacheThreshold) {
           memCache.set(key, { result, expiresAt: Date.now() + CACHE_TTL_MS });
           saveCache();
         }
