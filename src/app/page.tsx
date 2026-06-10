@@ -59,6 +59,8 @@ export default function DashboardPage() {
   const [heroCollapsed, setHeroCollapsed] = useState(false);
   const [watchlist, setWatchlist]         = useState<Set<string>>(new Set());
   const [weights, setWeights]             = useState<ScanWeights>({ growth: 34, profitability: 33, valuation: 33 });
+  const [analyzing, setAnalyzing]         = useState(false);
+  const [analyzeError, setAnalyzeError]   = useState("");
 
   useEffect(() => { setWatchlist(loadWatchlist()); }, []);
 
@@ -135,6 +137,36 @@ export default function DashboardPage() {
 
     es.onerror = () => { es.close(); setScanning(false); };
   }, [scanning, weights, marketFilter, scanSize, totalTickers]);
+
+  // Analyze any ticker on demand — even one the scan never covered.
+  const analyzeTicker = useCallback(async (raw: string) => {
+    const sym = raw.trim().toUpperCase();
+    if (!sym || analyzing) return;
+    setAnalyzing(true);
+    setAnalyzeError("");
+    try {
+      const qs = new URLSearchParams({
+        growth:        String(weights.growth),
+        profitability: String(weights.profitability),
+        valuation:     String(weights.valuation),
+      });
+      const res = await fetch(`/api/stock/${encodeURIComponent(sym)}?${qs}`);
+      const row: StockRow = await res.json();
+      if (!res.ok || row.error || row.price == null) {
+        setAnalyzeError(`Couldn't find data for "${sym}". Check the ticker (US symbols, or .TA for TASE).`);
+        return;
+      }
+      // Fold it into the result set so it stays available, then open the drawer.
+      setPartialRows((prev) =>
+        prev.some((r) => r.symbol === row.symbol) ? prev : [...prev, row]
+      );
+      setSelectedStock(row);
+    } catch {
+      setAnalyzeError(`Lookup failed for "${sym}". Try again.`);
+    } finally {
+      setAnalyzing(false);
+    }
+  }, [analyzing, weights]);
 
   // Re-rank instantly when weights change — no server round-trip
   const liveRows = useMemo(() => {
@@ -222,6 +254,10 @@ export default function DashboardPage() {
           search={search}
           setSearch={setSearch}
           tilt
+          onAnalyze={analyzeTicker}
+          analyzing={analyzing}
+          analyzeError={analyzeError}
+          hasExactMatch={liveRows.some((r) => r.symbol === search.trim().toUpperCase())}
         />
 
         {liveRows.length > 0 || scanning ? (
