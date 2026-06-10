@@ -1,8 +1,25 @@
 "use client";
 
-import type { StockRow } from "@/lib/types";
+import type { StockRow, EarningsHistory } from "@/lib/types";
 import { fmtPrice, fmtPct } from "@/lib/formatters";
 import { WatchStar, SectorChip, ScorePill, ScoreBar, DayChange, TrendArrow, RiskBadge } from "./primitives";
+
+/** Beat / missed last quarter's EPS estimate. undefined = not loaded yet. */
+function EarningsMark({ e }: { e?: EarningsHistory }) {
+  if (!e || e.beat === undefined) return <span className="earn-mark num dim">·</span>;
+  const beat = e.beat;
+  const surp = e.surprisePct != null ? `${e.surprisePct >= 0 ? "+" : ""}${(e.surprisePct * 100).toFixed(1)}%` : "";
+  return (
+    <span
+      className={`earn-mark ${beat ? "beat" : "miss"}`}
+      title={`${beat ? "Beat" : "Missed"} EPS estimate${surp ? ` · surprise ${surp}` : ""}${
+        e.epsActual != null && e.epsEstimate != null ? ` (act ${e.epsActual} vs est ${e.epsEstimate})` : ""
+      }`}
+    >
+      {beat ? "▲ Beat" : "▼ Miss"}
+    </span>
+  );
+}
 
 function fmtPE(v?: number | null) { return v && v > 0 ? v.toFixed(1) : "—"; }
 function fmtCap(mc?: number | null) {
@@ -22,9 +39,10 @@ interface Props {
   onToggleWatch: (symbol: string) => void;
   sectorPEMap: Record<string, number>;
   emptyHint?: string;
+  earningsMap?: Record<string, EarningsHistory>;
 }
 
-export function ResultsTable({ rows, onSelect, scanning, newest, watchlist, onToggleWatch, sectorPEMap, emptyHint }: Props) {
+export function ResultsTable({ rows, onSelect, scanning, newest, watchlist, onToggleWatch, sectorPEMap, emptyHint, earningsMap }: Props) {
   return (
     <div className="table-wrap glass depth-2">
       <table className="results-table">
@@ -36,6 +54,7 @@ export function ResultsTable({ rows, onSelect, scanning, newest, watchlist, onTo
             <th>Sector</th>
             <th className="score-col">Score</th>
             <th className="num-col">8w trend</th>
+            <th className="num-col">Earnings</th>
             <th className="num-col">Price</th>
             <th className="num-col">Day</th>
             <th className="num-col">P/E</th>
@@ -71,6 +90,7 @@ export function ResultsTable({ rows, onSelect, scanning, newest, watchlist, onTo
                 </span>
               </td>
               <td className="num-col"><TrendArrow /></td>
+              <td className="num-col"><EarningsMark e={earningsMap?.[r.symbol]} /></td>
               <td className="num-col num">{fmtPrice(r.price, r.symbol, r.currency)}</td>
               <td className="num-col"><DayChange value={r.dayChange} /></td>
               <td className="num-col num dim">{fmtPE(r.peRatio)}</td>

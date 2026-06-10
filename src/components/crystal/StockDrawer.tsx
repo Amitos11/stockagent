@@ -335,6 +335,21 @@ export function StockDrawer({ stock, weights, sectorPEMap, onClose, watched, onT
           <span className="drawer-price num">{fmtPrice(stock.price, stock.symbol, stock.currency)}</span>
           <DayChange value={stock.dayChange} />
           <ScorePill score={stock.score ?? 0} />
+          {detail.lastEarnings?.beat !== undefined ? (
+            <span
+              className={`earn-badge ${detail.lastEarnings.beat ? "beat" : "miss"}`}
+              title={
+                detail.lastEarnings.epsActual != null && detail.lastEarnings.epsEstimate != null
+                  ? `EPS ${detail.lastEarnings.epsActual} vs est ${detail.lastEarnings.epsEstimate}`
+                  : undefined
+              }
+            >
+              {detail.lastEarnings.beat ? "▲ Beat estimate" : "▼ Missed estimate"}
+              {detail.lastEarnings.surprisePct != null
+                ? ` · ${detail.lastEarnings.surprisePct >= 0 ? "+" : ""}${(detail.lastEarnings.surprisePct * 100).toFixed(1)}%`
+                : ""}
+            </span>
+          ) : null}
         </div>
 
         <div className={`read-banner read-${read.tone}`}>

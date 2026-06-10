@@ -69,6 +69,16 @@ export async function fetchCandleHistory(symbol: string): Promise<CandleData[]> 
   }
 }
 
+export async function fetchEarningsBatch(symbols: string[]): Promise<Record<string, EarningsHistory>> {
+  if (!symbols.length) return {};
+  try {
+    const data = await runPython("earnings_batch", symbols.join(","), 45_000) as Record<string, EarningsHistory>;
+    return data && typeof data === "object" ? data : {};
+  } catch {
+    return {};
+  }
+}
+
 export async function fetchNews(symbol: string): Promise<NewsItem[]> {
   try {
     const data = await runPython("news", symbol, 15_000) as NewsItem[];
