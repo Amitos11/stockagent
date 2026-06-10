@@ -113,6 +113,17 @@ export default function DashboardPage() {
         const total = (data as { total?: number }).total ?? totalTickers;
         if (total > 0) setProgress(accumulated.length / total);
       } else if (type === "complete") {
+        // Cache path: a cached result arrives as a SINGLE complete event with the
+        // full ranked payload and no preceding stock events. Hydrate the table
+        // from it, otherwise repeat scans of the same weights/size show nothing.
+        if (accumulated.length === 0 && data) {
+          const result = data as { valid?: StockRow[]; allRows?: StockRow[] };
+          const rows = result.valid ?? result.allRows ?? [];
+          if (rows.length) {
+            accumulated.push(...rows);
+            setPartialRows([...rows].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)));
+          }
+        }
         es.close();
         setScanning(false);
         setProgress(1);
