@@ -1,17 +1,31 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Sora, Instrument_Sans, Spline_Sans_Mono } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
+const sora = Sora({
   subsets: ["latin"],
   display: "swap",
-  variable: "--font-inter",
-  weight: ["300", "400", "500", "600", "700", "800"],
+  variable: "--font-sora",
+  weight: ["500", "600", "700"],
+});
+
+const instrument = Instrument_Sans({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-instrument",
+  weight: ["400", "500", "600"],
+});
+
+const splineMono = Spline_Sans_Mono({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-spline-mono",
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
-  title: "Discovery Agent — Stock Scanner",
-  description: "Scan US & Israeli stocks with weighted value investing scoring",
+  title: "StockAgent — Crystal Markets",
+  description: "Live market screener — scan US & Israeli stocks, weighted by growth, profitability and valuation.",
 };
 
 export default function RootLayout({
@@ -20,8 +34,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={inter.variable}>
-      <body className="min-h-screen antialiased" style={{ background: "#060912", color: "#f1f5f9" }}>{children}</body>
+    <html lang="en" className={`${sora.variable} ${instrument.variable} ${splineMono.variable}`}>
+      <body>{children}</body>
     </html>
   );
 }

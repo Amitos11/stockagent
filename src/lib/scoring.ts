@@ -1,30 +1,52 @@
 import type { StockRow, ScanWeights } from "./types";
 
-export function scoreGrowth(row: StockRow, weight: number): number {
+// ── Raw pillar quality (0–1), independent of weight ─────────────────────────────
+
+function normGrowth(row: StockRow): number {
   const epsNorm = row.earningsGrowth != null ? Math.max(0, Math.min(1, row.earningsGrowth / 0.5)) : null;
   const revNorm = row.revenueGrowth != null ? Math.max(0, Math.min(1, row.revenueGrowth / 0.3)) : null;
   const available = [epsNorm, revNorm].filter((x): x is number => x != null);
   if (!available.length) return 0;
-  return (available.reduce((a, b) => a + b, 0) / available.length) * weight;
+  return available.reduce((a, b) => a + b, 0) / available.length;
 }
 
-export function scoreProfitability(row: StockRow, weight: number): number {
+function normProfitability(row: StockRow): number {
   const omNorm = row.operatingMargin != null ? Math.max(0, Math.min(1, row.operatingMargin / 0.25)) : null;
   const roeNorm = row.roe != null ? Math.max(0, Math.min(1, row.roe / 0.25)) : null;
   const available = [omNorm, roeNorm].filter((x): x is number => x != null);
   if (!available.length) return 0;
-  return (available.reduce((a, b) => a + b, 0) / available.length) * weight;
+  return available.reduce((a, b) => a + b, 0) / available.length;
 }
 
-export function scoreValuation(row: StockRow, weight: number): number {
+function normValuation(row: StockRow): number {
   const pe = row.peRatio;
   if (pe == null || pe <= 0) return 0;
-  let norm: number;
-  if (pe <= 10) norm = 1.0;
-  else if (pe <= 20) norm = 1.0 - (pe - 10) * 0.05;
-  else if (pe <= 40) norm = 0.5 - (pe - 20) * 0.0225;
-  else norm = Math.max(0, 0.05 - (pe - 40) * 0.001);
-  return norm * weight;
+  if (pe <= 10) return 1.0;
+  if (pe <= 20) return 1.0 - (pe - 10) * 0.05;
+  if (pe <= 40) return 0.5 - (pe - 20) * 0.0225;
+  return Math.max(0, 0.05 - (pe - 40) * 0.001);
+}
+
+export function scoreGrowth(row: StockRow, weight: number): number {
+  return normGrowth(row) * weight;
+}
+export function scoreProfitability(row: StockRow, weight: number): number {
+  return normProfitability(row) * weight;
+}
+export function scoreValuation(row: StockRow, weight: number): number {
+  return normValuation(row) * weight;
+}
+
+/**
+ * Recompute the weighted composite score (0–100 when weights sum to 100)
+ * from the raw pillar quality already stored on the row. Used for instant
+ * client-side re-ranking when the user changes weights after a scan.
+ */
+export function computeWeightedScore(row: StockRow, weights: ScanWeights): number {
+  const qg = row.qualityGrowth ?? 0;
+  const qp = row.qualityProfitability ?? 0;
+  const qv = row.qualityValuation ?? 0;
+  return (qg * weights.growth + qp * weights.profitability + qv * weights.valuation) / 100;
 }
 
 /** Enough data to score meaningfully */
@@ -39,11 +61,17 @@ export function hasMinData(row: StockRow): boolean {
 }
 
 export function applyScores(row: StockRow, weights: ScanWeights): StockRow {
-  const sg = scoreGrowth(row, weights.growth);
-  const sp = scoreProfitability(row, weights.profitability);
-  const sv = scoreValuation(row, weights.valuation);
+  const qg = normGrowth(row) * 100;
+  const qp = normProfitability(row) * 100;
+  const qv = normValuation(row) * 100;
+  const sg = (qg * weights.growth) / 100;
+  const sp = (qp * weights.profitability) / 100;
+  const sv = (qv * weights.valuation) / 100;
   return {
     ...row,
+    qualityGrowth: qg,
+    qualityProfitability: qp,
+    qualityValuation: qv,
     scoreGrowth: sg,
     scoreProfitability: sp,
     scoreValuation: sv,
