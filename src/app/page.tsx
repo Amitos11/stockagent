@@ -20,6 +20,10 @@ import { ALL_TICKERS, BUFFETT_QUOTES, getSector, SECTOR_META } from "@/lib/ticke
 type Tab = "top10" | "all" | "value" | "sectors" | "heatmap";
 type MarketFilter = "all" | "US" | "IL";
 
+// Scan-size presets, clamped to the available universe. Larger = slower but broader.
+const SCAN_SIZES = [100, 250, 500].filter((n) => n <= ALL_TICKERS.length);
+if (!SCAN_SIZES.includes(ALL_TICKERS.length)) SCAN_SIZES.push(ALL_TICKERS.length);
+
 export default function DashboardPage() {
   const [results, setResults]         = useState<ScanResult | null>(null);
   const [partialRows, setPartialRows] = useState<StockRow[]>([]);
@@ -34,6 +38,11 @@ export default function DashboardPage() {
   const [wGrowth, setWGrowth] = useState(33);
   const [wProfit, setWProfit] = useState(33);
   const [wValue,  setWValue]  = useState(34);
+
+  // How many tickers to scan (default: largest preset, capped at universe size).
+  const [scanSize, setScanSize] = useState<number>(
+    () => Math.min(500, ALL_TICKERS.length)
+  );
 
   const totalWeight = wGrowth + wProfit + wValue;
 
@@ -50,9 +59,9 @@ export default function DashboardPage() {
     setPartialRows([]);
     setReceivedCount(0);
 
-    const url = `/api/scan/stream?growth=${wGrowth}&profitability=${wProfit}&valuation=${wValue}`;
+    const url = `/api/scan/stream?growth=${wGrowth}&profitability=${wProfit}&valuation=${wValue}&limit=${scanSize}`;
     const es = new EventSource(url);
-    let total: number = ALL_TICKERS.length;
+    let total: number = scanSize;
     let done = false;
 
     es.onmessage = (ev) => {
@@ -100,7 +109,7 @@ export default function DashboardPage() {
       setScanning(false);
       setProgress(0);
     };
-  }, [wGrowth, wProfit, wValue]);
+  }, [wGrowth, wProfit, wValue, scanSize]);
 
   const handleSelectStock = useCallback((stock: StockRow) => {
     setSelectedStock(stock);
@@ -215,6 +224,24 @@ export default function DashboardPage() {
 
           {/* Actions */}
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Scan-size selector */}
+            <div
+              className="hidden sm:flex items-center rounded-lg overflow-hidden glass-sm"
+              title="How many tickers to scan — larger is slower but broader"
+            >
+              {SCAN_SIZES.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setScanSize(n)}
+                  disabled={scanning}
+                  className={`px-2.5 py-1.5 text-xs font-semibold transition-all cursor-pointer disabled:cursor-not-allowed ${
+                    scanSize === n ? "tab-active" : "tab-inactive"
+                  }`}
+                >
+                  {n >= ALL_TICKERS.length ? "All" : n}
+                </button>
+              ))}
+            </div>
             {results && (
               <button
                 onClick={downloadCSV}
@@ -233,7 +260,7 @@ export default function DashboardPage() {
                 ? <RefreshCw size={14} className="animate-spin" />
                 : <ScanLine size={14} />}
               {scanning
-                ? receivedCount > 0 ? `${receivedCount}/${ALL_TICKERS.length}` : "Scanning…"
+                ? receivedCount > 0 ? `${receivedCount}/${scanSize}` : "Scanning…"
                 : "Run Scan"}
             </button>
           </div>
@@ -340,7 +367,7 @@ export default function DashboardPage() {
             <div className="text-center">
               <div className="font-bold text-lg gradient-text">Ready to Scan</div>
               <div className="text-sm mt-1" style={{ color: "rgba(148,163,184,0.5)" }}>
-                {ALL_TICKERS.length} tickers · US mega-cap, semis, software, healthcare, Israeli NASDAQ &amp; TASE
+                Scanning {scanSize === ALL_TICKERS.length ? "all " : ""}{scanSize} of {ALL_TICKERS.length} tickers · US mega-cap, semis, software, healthcare, Israeli NASDAQ &amp; TASE
               </div>
             </div>
             <button
@@ -361,7 +388,7 @@ export default function DashboardPage() {
             <div className="flex items-center gap-3 px-1">
               <div className="flex items-center gap-2 text-sm font-medium" style={{ color: "rgba(148,163,184,0.8)" }}>
                 <div className="pulse-dot w-2 h-2 rounded-full bg-indigo-400" />
-                Live results — {receivedCount} / {ALL_TICKERS.length} fetched
+                Live results — {receivedCount} / {scanSize} fetched
               </div>
               <span className="text-xs" style={{ color: "rgba(148,163,184,0.4)" }}>Table updates in real-time</span>
             </div>
