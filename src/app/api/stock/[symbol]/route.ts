@@ -2,7 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchStock, fetchFullEnrich } from "@/lib/fetcher";
 import { applyScores, generateInsight, isValuePlay } from "@/lib/scoring";
 import { getStock, putStock } from "@/lib/stockCache";
-import type { ScanWeights } from "@/lib/types";
+import type { ScanWeights, StockRow } from "@/lib/types";
+
+// A row counts as "fully enriched" only when it actually carries detail data.
+// An empty `quarterly: {}` is truthy but useless, and Yahoo intermittently
+// returns empty enrich — so we must not treat that as complete (it would stick
+// in cache and never re-fetch the beat/miss + analyst data).
+function isEnriched(r: StockRow): boolean {
+  return (
+    r.lastEarnings?.beat !== undefined ||
+    !!r.analyst?.recommendationKey ||
+    r.quarterly?.qRevenue != null ||
+    r.forecasts?.nextQEps != null
+  );
+}
 
 export async function GET(
   req: NextRequest,
@@ -18,12 +31,11 @@ export async function GET(
 
   const sym = symbol.toUpperCase();
 
-  // Cache hit with full detail — return immediately.
+  // Cache hit with real enriched detail — return immediately.
   const cached = getStock(sym);
-  if (cached && cached.quarterly) return NextResponse.json(cached);
+  if (cached && isEnriched(cached)) return NextResponse.json(cached);
 
-  // Cache hit from the scan, but a scan row has no quarterly/news detail.
-  // Enrich it once and re-cache so the drawer can show reported figures.
+  // Cached scan row without detail (or a poisoned empty enrich) — enrich now.
   if (cached) {
     const enrich = await fetchFullEnrich(sym);
     const merged = {
@@ -44,7 +56,9 @@ export async function GET(
         recommendationMean: enrich.analyst.recommendationMean ?? cached.recommendationMean,
       } : {}),
     };
-    putStock(merged);
+    // Only cache if the enrich actually produced detail — never poison the cache
+    // with an empty result that would block future re-fetches.
+    if (isEnriched(merged)) putStock(merged);
     return NextResponse.json(merged);
   }
 
@@ -74,6 +88,8 @@ export async function GET(
     scored.recommendationMean = enrich.analyst.recommendationMean ?? scored.recommendationMean;
   }
 
-  putStock(scored);
+  // Cache only when enrichment succeeded, so a flaky empty result is retried
+  // on the next open instead of sticking for the full TTL.
+  if (isEnriched(scored)) putStock(scored);
   return NextResponse.json(scored);
 }
