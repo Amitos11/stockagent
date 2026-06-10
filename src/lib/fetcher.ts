@@ -7,7 +7,7 @@ import { execFile } from "child_process";
 import { join } from "path";
 import type {
   StockRow, NewsItem, Management, QuarterlyData,
-  ForwardEstimates, EarningsHistory, CandleData,
+  ForwardEstimates, EarningsHistory, CandleData, AnalystData,
 } from "./types";
 
 // ── subprocess helper ──────────────────────────────────────────────────────────
@@ -88,12 +88,13 @@ export async function fetchNews(symbol: string): Promise<NewsItem[]> {
   }
 }
 
-/** Returns management + quarterly + forward estimates + last earnings */
+/** Returns management + quarterly + forward estimates + last earnings + analyst */
 async function fetchEnrich(symbol: string): Promise<{
   management: Management;
   quarterly: QuarterlyData;
   forecasts: ForwardEstimates;
   lastEarnings: EarningsHistory;
+  analyst: AnalystData;
 }> {
   try {
     const data = await runPython("enrich", symbol, 30_000) as {
@@ -101,15 +102,17 @@ async function fetchEnrich(symbol: string): Promise<{
       quarterly?: QuarterlyData;
       forecasts?: ForwardEstimates;
       lastEarnings?: EarningsHistory;
+      analyst?: AnalystData;
     };
     return {
       management:  data.management  ?? {},
       quarterly:   data.quarterly   ?? {},
       forecasts:   data.forecasts   ?? {},
       lastEarnings: data.lastEarnings ?? {},
+      analyst:     data.analyst     ?? {},
     };
   } catch {
-    return { management: {}, quarterly: {}, forecasts: {}, lastEarnings: {} };
+    return { management: {}, quarterly: {}, forecasts: {}, lastEarnings: {}, analyst: {} };
   }
 }
 
@@ -136,6 +139,7 @@ export async function fetchFullEnrich(symbol: string): Promise<{
   quarterly: QuarterlyData;
   forecasts: ForwardEstimates;
   lastEarnings: EarningsHistory;
+  analyst: AnalystData;
 }> {
   const [news, enrich] = await Promise.all([
     fetchNews(symbol),

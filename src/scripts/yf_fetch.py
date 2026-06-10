@@ -899,6 +899,16 @@ def fetch_enrich(symbol: str) -> dict:
             elif not cfo and ("cfo" in t or "chief financial" in t): cfo = rec
         out["management"] = {"ceo": ceo, "cfo": cfo}
 
+        # Analyst price targets + recommendation (from quoteSummary via .info).
+        out["analyst"] = {
+            "targetMean":         sf(info.get("targetMeanPrice")),
+            "targetHigh":         sf(info.get("targetHighPrice")),
+            "targetLow":          sf(info.get("targetLowPrice")),
+            "numAnalysts":        info.get("numberOfAnalystOpinions"),
+            "recommendationKey":  info.get("recommendationKey") or "",
+            "recommendationMean": sf(info.get("recommendationMean")),
+        }
+
         try:
             qis = ticker.quarterly_income_stmt
             if qis is not None and not qis.empty:

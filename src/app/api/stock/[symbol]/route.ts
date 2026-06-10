@@ -33,6 +33,16 @@ export async function GET(
       quarterly:    enrich.quarterly,
       forecasts:    enrich.forecasts,
       lastEarnings: enrich.lastEarnings,
+      // Real analyst targets/recommendation override the scan's 52w fallback.
+      analyst:      enrich.analyst,
+      ...(enrich.analyst?.targetMean != null ? {
+        targetMeanPrice:    enrich.analyst.targetMean,
+        targetHighPrice:    enrich.analyst.targetHigh ?? cached.targetHighPrice,
+        targetLowPrice:     enrich.analyst.targetLow ?? cached.targetLowPrice,
+        numAnalysts:        enrich.analyst.numAnalysts ?? cached.numAnalysts,
+        recommendationKey:  enrich.analyst.recommendationKey || cached.recommendationKey,
+        recommendationMean: enrich.analyst.recommendationMean ?? cached.recommendationMean,
+      } : {}),
     };
     putStock(merged);
     return NextResponse.json(merged);
@@ -54,6 +64,15 @@ export async function GET(
   scored.quarterly    = enrich.quarterly;
   scored.forecasts    = enrich.forecasts;
   scored.lastEarnings = enrich.lastEarnings;
+  scored.analyst      = enrich.analyst;
+  if (enrich.analyst?.targetMean != null) {
+    scored.targetMeanPrice    = enrich.analyst.targetMean;
+    scored.targetHighPrice    = enrich.analyst.targetHigh ?? scored.targetHighPrice;
+    scored.targetLowPrice     = enrich.analyst.targetLow ?? scored.targetLowPrice;
+    scored.numAnalysts        = enrich.analyst.numAnalysts ?? scored.numAnalysts;
+    scored.recommendationKey  = enrich.analyst.recommendationKey || scored.recommendationKey;
+    scored.recommendationMean = enrich.analyst.recommendationMean ?? scored.recommendationMean;
+  }
 
   putStock(scored);
   return NextResponse.json(scored);
