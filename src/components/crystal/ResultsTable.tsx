@@ -2,7 +2,7 @@
 
 import type { StockRow, EarningsHistory } from "@/lib/types";
 import { fmtPrice, fmtPct } from "@/lib/formatters";
-import { WatchStar, SectorChip, ScorePill, ScoreBar, DayChange, TrendArrow, RiskBadge } from "./primitives";
+import { WatchStar, SectorChip, ScorePill, ScoreBar, DayChange, TrendArrow, RiskBadge, HealthDot } from "./primitives";
 
 /** Beat / missed last quarter's EPS estimate. undefined = not loaded yet. */
 function EarningsMark({ e }: { e?: EarningsHistory }) {
@@ -86,6 +86,7 @@ export function ResultsTable({ rows, onSelect, scanning, newest, watchlist, onTo
               <td className="score-col">
                 <span className="score-cell">
                   <ScorePill score={r.score ?? 0} />
+                  <HealthDot stock={r} />
                   <ScoreBar score={r.score ?? 0} />
                 </span>
               </td>
