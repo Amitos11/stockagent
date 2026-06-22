@@ -312,6 +312,31 @@ def _raw_reported(item: dict, key: str):
     return sf((latest.get("reportedValue") or {}).get("raw"))
 
 
+def _series_reported(item: dict, key: str):
+    """Full chronological list of raw values for a timeseries key (for YoY calcs)."""
+    out = []
+    for v in (item.get(key) or []):
+        out.append(sf(((v or {}).get("reportedValue") or {}).get("raw")))
+    return [x for x in out if x is not None]
+
+
+def _first(values: dict, *keys):
+    """First non-None value among candidate keys (handles quarterly/annual/trailing variants)."""
+    for k in keys:
+        if values.get(k) is not None:
+            return values.get(k)
+    return None
+
+
+def _yoy_growth(seq):
+    """Year-over-year growth from a quarterly series (latest vs 4 quarters back)."""
+    if seq and len(seq) >= 5:
+        latest, year_ago = seq[-1], seq[-5]
+        if year_ago is not None and year_ago > 0:
+            return (latest - year_ago) / year_ago
+    return None
+
+
 def _yf_timeseries_fetch(symbol: str) -> dict:
     """
     Yahoo endpoints that currently do not require crumb:
@@ -353,6 +378,20 @@ def _yf_timeseries_fetch(symbol: str) -> dict:
             "trailingNetIncome",
             "quarterlyOperatingIncome",
             "quarterlyTotalRevenue",
+            # Higher-quality fundamentals (still crumb-free). Over-request quarterly
+            # + annual + trailing variants; Yahoo silently drops the ones it lacks.
+            "trailingEbitda",
+            "quarterlyEbitda",
+            "annualEbitda",
+            "trailingOperatingIncome",
+            "quarterlyStockholdersEquity",
+            "annualStockholdersEquity",
+            "quarterlyTotalDebt",
+            "annualTotalDebt",
+            "quarterlyCurrentAssets",
+            "quarterlyCurrentLiabilities",
+            "quarterlyNetIncome",
+            "quarterlyDilutedEPS",
         ]
         ts = sess.get(
             f"https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{symbol}",
@@ -367,11 +406,15 @@ def _yf_timeseries_fetch(symbol: str) -> dict:
         )
 
         values = {}
+        series = {}
+        SERIES_KEYS = {"quarterlyNetIncome", "quarterlyDilutedEPS", "quarterlyOperatingIncome"}
         if ts.ok:
             for item in (((ts.json() or {}).get("timeseries") or {}).get("result") or []):
                 for key in types:
                     if key in item:
                         values[key] = _raw_reported(item, key)
+                        if key in SERIES_KEYS:
+                            series[key] = _series_reported(item, key)
 
         mc = values.get("trailingMarketCap")
         total_revenue = values.get("trailingTotalRevenue")
@@ -379,6 +422,25 @@ def _yf_timeseries_fetch(symbol: str) -> dict:
         q_op_income = values.get("quarterlyOperatingIncome")
         q_revenue = values.get("quarterlyTotalRevenue")
         prev = sf((meta or {}).get("chartPreviousClose")) or sf((meta or {}).get("previousClose"))
+
+        # ── Derived high-quality fundamentals ───────────────────────────────────
+        equity   = _first(values, "quarterlyStockholdersEquity", "annualStockholdersEquity")
+        debt     = _first(values, "quarterlyTotalDebt", "annualTotalDebt")
+        cur_a    = values.get("quarterlyCurrentAssets")
+        cur_l    = values.get("quarterlyCurrentLiabilities")
+
+        roe = (net_income / equity) if (net_income is not None and equity and equity > 0) else None
+        # yfinance reports debt/equity as a percentage (e.g. 150 = 150%).
+        debt_to_equity = (debt / equity * 100) if (debt is not None and equity and equity > 0) else None
+        current_ratio  = (cur_a / cur_l) if (cur_a is not None and cur_l and cur_l > 0) else None
+        ebitda     = _first(values, "trailingEbitda", "quarterlyEbitda", "annualEbitda")
+        op_income  = values.get("trailingOperatingIncome")
+        if op_income is None:
+            opq = series.get("quarterlyOperatingIncome") or []
+            op_income = sum(opq[-4:]) if len(opq) >= 4 else None
+        # EPS growth YoY — prefer diluted EPS series, fall back to net income.
+        earnings_growth = _yoy_growth(series.get("quarterlyDilutedEPS")) \
+                          or _yoy_growth(series.get("quarterlyNetIncome"))
 
         row.update({
             "name":     (meta or {}).get("longName") or (meta or {}).get("shortName") or symbol,
@@ -391,19 +453,19 @@ def _yf_timeseries_fetch(symbol: str) -> dict:
             "peRatio":          values.get("trailingPeRatio"),
             "forwardPE":        values.get("trailingForwardPeRatio"),
             "pegRatio":         values.get("trailingPegRatio"),
-            "earningsGrowth":   None,
+            "earningsGrowth":   earnings_growth,
             "revenueGrowth":    values.get("quarterlyRevenueGrowth"),
             "operatingMargin":  (q_op_income / q_revenue) if (q_op_income is not None and q_revenue) else None,
             "profitMargin":     (net_income / total_revenue) if (net_income is not None and total_revenue) else None,
-            "roe":              None,
-            "debtToEquity":     None,
-            "currentRatio":     None,
+            "roe":              roe,
+            "debtToEquity":     debt_to_equity,
+            "currentRatio":     current_ratio,
             "financialCurrency": (meta or {}).get("currency", "USD"),
             "totalRevenue":     total_revenue,
             "grossProfits":     values.get("trailingGrossProfit"),
-            "ebitda":           None,
+            "ebitda":           ebitda,
             "netIncomeTTM":     net_income,
-            "opIncomeTTM":      None,
+            "opIncomeTTM":      op_income,
             "targetMeanPrice":  None,
             "targetHighPrice":  sf((meta or {}).get("fiftyTwoWeekHigh")),
             "targetLowPrice":   sf((meta or {}).get("fiftyTwoWeekLow")),
