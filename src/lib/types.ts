@@ -50,6 +50,8 @@ export interface StockRow {
   qualityGrowth?: number;
   qualityProfitability?: number;
   qualityValuation?: number;
+  // Financial-health multiplier (0.70–1.0) applied to the composite score.
+  healthFactor?: number;
   insight?: string;
   // Enrichment (Top 10 only)
   news?: NewsItem[];

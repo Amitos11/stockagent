@@ -38,6 +38,28 @@ export function scoreValuation(row: StockRow, weight: number): number {
 }
 
 /**
+ * Financial-health guard (0.70–1.0). High leverage and weak liquidity drag the
+ * composite down so a cheap-looking, fast-growing but debt-laden company (e.g.
+ * a post-acquisition rollup) can't top the rankings on growth alone. Missing
+ * data → no penalty (we don't punish absent fundamentals).
+ */
+export function financialHealthFactor(row: StockRow): number {
+  let f = 1;
+  const de = row.debtToEquity; // stored as a percentage (150 = 150%)
+  if (de != null) {
+    if (de > 300)      f *= 0.80;
+    else if (de > 200) f *= 0.88;
+    else if (de > 120) f *= 0.94;
+  }
+  const cr = row.currentRatio;
+  if (cr != null) {
+    if (cr < 0.5)    f *= 0.90;
+    else if (cr < 1) f *= 0.96;
+  }
+  return f;
+}
+
+/**
  * Recompute the weighted composite score (0–100 when weights sum to 100)
  * from the raw pillar quality already stored on the row. Used for instant
  * client-side re-ranking when the user changes weights after a scan.
@@ -46,7 +68,8 @@ export function computeWeightedScore(row: StockRow, weights: ScanWeights): numbe
   const qg = row.qualityGrowth ?? 0;
   const qp = row.qualityProfitability ?? 0;
   const qv = row.qualityValuation ?? 0;
-  return (qg * weights.growth + qp * weights.profitability + qv * weights.valuation) / 100;
+  const base = (qg * weights.growth + qp * weights.profitability + qv * weights.valuation) / 100;
+  return base * (row.healthFactor ?? financialHealthFactor(row));
 }
 
 /** Enough data to score meaningfully */
@@ -67,6 +90,7 @@ export function applyScores(row: StockRow, weights: ScanWeights): StockRow {
   const sg = (qg * weights.growth) / 100;
   const sp = (qp * weights.profitability) / 100;
   const sv = (qv * weights.valuation) / 100;
+  const hf = financialHealthFactor(row);
   return {
     ...row,
     qualityGrowth: qg,
@@ -75,7 +99,8 @@ export function applyScores(row: StockRow, weights: ScanWeights): StockRow {
     scoreGrowth: sg,
     scoreProfitability: sp,
     scoreValuation: sv,
-    score: sg + sp + sv,
+    healthFactor: hf,
+    score: (sg + sp + sv) * hf,
   };
 }
 
