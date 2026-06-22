@@ -193,3 +193,31 @@ export function aiInsightTemplate(s: StockRow): string {
 
   return `${name}: ${revPart}; ${omPart}; and ${pePart}. Debt-to-equity of ${de?.toFixed(0) ?? "N/A"}% indicates ${deStr}. Next earnings ${s.nextEarnings ?? "TBD"}.`;
 }
+
+export interface HealthTier {
+  level: "good" | "watch" | "risk" | "unknown";
+  label: string;
+  color: string;
+  detail: string;
+}
+
+// Visual financial-health rating from leverage + liquidity. Mirrors the
+// scoring penalty (financialHealthFactor) so a high score with balance-sheet
+// risk is always visible at a glance.
+export function healthTier(s: StockRow): HealthTier {
+  const de = s.debtToEquity;   // percent (150 = 150%)
+  const cr = s.currentRatio;
+  if (de == null && cr == null) {
+    return { level: "unknown", label: "—", color: "#64748b", detail: "Balance-sheet data unavailable" };
+  }
+  let points = 0;
+  if (de != null) { if (de > 300) points += 2; else if (de > 150) points += 1; }
+  if (cr != null) { if (cr < 0.5) points += 2; else if (cr < 1) points += 1; }
+  const bits: string[] = [];
+  if (de != null) bits.push(`D/E ${de.toFixed(0)}%`);
+  if (cr != null) bits.push(`current ratio ${cr.toFixed(2)}`);
+  const detail = bits.join(" · ");
+  if (points >= 3) return { level: "risk",  label: "High risk", color: "#f87171", detail };
+  if (points >= 1) return { level: "watch", label: "Elevated",  color: "#fbbf24", detail };
+  return { level: "good", label: "Healthy", color: "#34d399", detail };
+}

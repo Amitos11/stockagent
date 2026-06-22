@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import type { StockRow, ScanWeights, CandleData } from "@/lib/types";
 import { riskFlags, readSynthesis, aiInsightTemplate } from "@/lib/signals";
 import { fmtPrice, fmtPct } from "@/lib/formatters";
-import { SectorChip, ScorePill, DayChange, WatchStar, RiskBadge } from "./primitives";
+import { SectorChip, ScorePill, DayChange, WatchStar, RiskBadge, HealthDot } from "./primitives";
 
 function fmtPE(v?: number | null) { return v && v > 0 ? v.toFixed(1) : "—"; }
 function fmtCap(mc?: number | null) {
@@ -343,6 +343,7 @@ export function StockDrawer({ stock, weights, sectorPEMap, onClose, watched, onT
           <span className="drawer-price num">{fmtPrice(stock.price, stock.symbol, stock.currency)}</span>
           <DayChange value={stock.dayChange} />
           <ScorePill score={stock.score ?? 0} />
+          <HealthDot stock={detail} showLabel />
           {detail.lastEarnings?.beat !== undefined ? (
             <span
               className={`earn-badge ${detail.lastEarnings.beat ? "beat" : "miss"}`}

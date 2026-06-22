@@ -2,8 +2,8 @@
 
 import { useRef, useEffect, useState } from "react";
 import type { StockRow } from "@/lib/types";
-import { riskFlags } from "@/lib/signals";
-import type { RiskFlag } from "@/lib/signals";
+import { riskFlags, healthTier } from "@/lib/signals";
+import type { RiskFlag, HealthTier } from "@/lib/signals";
 import { SECTOR_COLORS } from "@/lib/signals";
 
 /* ── Tilt glass card ─────────────────────────────────────────────────────── */
@@ -203,6 +203,21 @@ export function RiskBadge({
           </span>
         ))}
       </span>
+    </span>
+  );
+}
+
+/* ── Financial-health rating dot (green/amber/red) ───────────────────────── */
+export function HealthDot({ stock, showLabel = false }: { stock: StockRow; showLabel?: boolean }) {
+  const tier: HealthTier = healthTier(stock);
+  if (tier.level === "unknown" && !showLabel) return null;
+  return (
+    <span
+      className="health-dot-wrap"
+      title={`Financial health: ${tier.label}${tier.detail ? ` — ${tier.detail}` : ""}`}
+    >
+      <span className="health-dot" style={{ background: tier.color, boxShadow: `0 0 6px ${tier.color}` }} />
+      {showLabel ? <span className="health-label num" style={{ color: tier.color }}>{tier.label}</span> : null}
     </span>
   );
 }
