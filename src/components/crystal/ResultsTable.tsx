@@ -40,9 +40,11 @@ interface Props {
   sectorPEMap: Record<string, number>;
   emptyHint?: string;
   earningsMap?: Record<string, EarningsHistory>;
+  isLocked?: (r: StockRow) => boolean;
+  onUpgrade?: () => void;
 }
 
-export function ResultsTable({ rows, onSelect, scanning, newest, watchlist, onToggleWatch, sectorPEMap, emptyHint, earningsMap }: Props) {
+export function ResultsTable({ rows, onSelect, scanning, newest, watchlist, onToggleWatch, sectorPEMap, emptyHint, earningsMap, isLocked, onUpgrade }: Props) {
   return (
     <div className="table-wrap glass depth-2">
       <table className="results-table">
@@ -64,7 +66,19 @@ export function ResultsTable({ rows, onSelect, scanning, newest, watchlist, onTo
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
+          {rows.map((r, i) => {
+            if (isLocked?.(r)) return (
+              <tr key={r.symbol} className="row-in locked-row" onClick={() => onUpgrade?.()} tabIndex={0}>
+                <td className="star-col"><span className="lock-mini">🔒</span></td>
+                <td className="num-col rank num">{String(i + 1).padStart(2, "0")}</td>
+                <td colSpan={11} className="lock-row-cell">
+                  <span className="hdot" style={{ background: "#34d399", boxShadow: "0 0 6px #34d399" }} />
+                  <b>Top-rated pick</b>
+                  <span className="lock-row-sub">— a healthy, high-score stock. Unlock with Pro →</span>
+                </td>
+              </tr>
+            );
+            return (
             <tr
               key={r.symbol}
               className={`row-in${r.symbol === newest ? " row-new" : ""}`}
@@ -106,7 +120,8 @@ export function ResultsTable({ rows, onSelect, scanning, newest, watchlist, onTo
                 </span>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
       {rows.length === 0 && emptyHint ? (
