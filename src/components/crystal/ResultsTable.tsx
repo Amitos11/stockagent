@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import type { StockRow, EarningsHistory } from "@/lib/types";
 import { fmtPrice, fmtPct } from "@/lib/formatters";
 import { WatchStar, SectorChip, ScorePill, ScoreBar, DayChange, TrendArrow, RiskBadge, HealthDot, CompanyLogo } from "./primitives";
@@ -30,6 +31,75 @@ function fmtCap(mc?: number | null) {
   return `$${mc.toFixed(0)}`;
 }
 
+/* ── Column sorting — purely a display-order concern, local to this table.
+   It never touches the scan, the fetched data, or any parent state. ────── */
+type SortKey = "company" | "sector" | "score" | "price" | "day" | "pe" | "revGrowth" | "mktCap";
+type SortDir = "asc" | "desc";
+
+const SORT_ACCESSORS: Record<SortKey, (r: StockRow) => string | number | null | undefined> = {
+  company:   (r) => r.name || r.symbol,
+  sector:    (r) => r.sector,
+  score:     (r) => r.score,
+  price:     (r) => r.price,
+  day:       (r) => r.dayChange,
+  pe:        (r) => (r.peRatio && r.peRatio > 0 ? r.peRatio : null),
+  revGrowth: (r) => r.revenueGrowth,
+  mktCap:    (r) => r.marketCap,
+};
+
+// First click's direction per column — cheapest-first for P/E, biggest-first
+// elsewhere, A-Z for text columns.
+const DEFAULT_DIR: Record<SortKey, SortDir> = {
+  company: "asc", sector: "asc", score: "desc", price: "desc",
+  day: "desc", pe: "asc", revGrowth: "desc", mktCap: "desc",
+};
+
+interface SortState { key: SortKey; dir: SortDir }
+
+function sortRows(rows: StockRow[], sort: SortState | null): StockRow[] {
+  if (!sort) return rows;
+  const get = SORT_ACCESSORS[sort.key];
+  const mul = sort.dir === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const av = get(a), bv = get(b);
+    // Missing values always sink to the bottom, regardless of direction.
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (typeof av === "string" || typeof bv === "string") {
+      return mul * String(av).localeCompare(String(bv));
+    }
+    return mul * (av - bv);
+  });
+}
+
+function SortTh({
+  label, sortKey, sort, onSort, className = "",
+}: {
+  label: string;
+  sortKey: SortKey;
+  sort: SortState | null;
+  onSort: (key: SortKey) => void;
+  className?: string;
+}) {
+  const active = sort?.key === sortKey;
+  return (
+    <th className={`${className} sortable-th${active ? " active" : ""}`}>
+      <button
+        type="button"
+        className="sort-th-btn"
+        onClick={() => onSort(sortKey)}
+        aria-label={`Sort by ${label}${active ? (sort!.dir === "asc" ? ", ascending" : ", descending") : ""}`}
+      >
+        {label}
+        <span className="sort-arrow" aria-hidden="true">
+          {active ? (sort!.dir === "asc" ? "▲" : "▼") : "↕"}
+        </span>
+      </button>
+    </th>
+  );
+}
+
 interface Props {
   rows: StockRow[];
   onSelect: (r: StockRow) => void;
@@ -43,6 +113,19 @@ interface Props {
 }
 
 export function ResultsTable({ rows, onSelect, scanning, newest, watchlist, onToggleWatch, sectorPEMap, emptyHint, earningsMap }: Props) {
+  const [sort, setSort] = useState<SortState | null>(null);
+
+  const handleSort = (key: SortKey) => {
+    setSort((prev) => {
+      if (prev?.key === key) return { key, dir: prev.dir === "asc" ? "desc" : "asc" };
+      return { key, dir: DEFAULT_DIR[key] };
+    });
+  };
+
+  // Sorting is purely presentational — the incoming `rows` (and everything
+  // upstream: the scan, the score, the ranking) is never mutated or reordered.
+  const displayRows = useMemo(() => sortRows(rows, sort), [rows, sort]);
+
   return (
     <div className="table-wrap glass depth-2">
       <table className="results-table">
@@ -50,21 +133,21 @@ export function ResultsTable({ rows, onSelect, scanning, newest, watchlist, onTo
           <tr>
             <th className="star-col" />
             <th className="num-col">#</th>
-            <th>Company</th>
-            <th>Sector</th>
-            <th className="score-col">Score</th>
+            <SortTh label="Company" sortKey="company" sort={sort} onSort={handleSort} />
+            <SortTh label="Sector" sortKey="sector" sort={sort} onSort={handleSort} />
+            <SortTh label="Score" sortKey="score" sort={sort} onSort={handleSort} className="score-col" />
             <th className="num-col">8w trend</th>
             <th className="num-col">Earnings</th>
-            <th className="num-col">Price</th>
-            <th className="num-col">Day</th>
-            <th className="num-col">P/E</th>
-            <th className="num-col">Rev growth</th>
-            <th className="num-col">Mkt cap</th>
+            <SortTh label="Price" sortKey="price" sort={sort} onSort={handleSort} className="num-col" />
+            <SortTh label="Day" sortKey="day" sort={sort} onSort={handleSort} className="num-col" />
+            <SortTh label="P/E" sortKey="pe" sort={sort} onSort={handleSort} className="num-col" />
+            <SortTh label="Rev growth" sortKey="revGrowth" sort={sort} onSort={handleSort} className="num-col" />
+            <SortTh label="Mkt cap" sortKey="mktCap" sort={sort} onSort={handleSort} className="num-col" />
             <th className="flag-col">Flags</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
+          {displayRows.map((r, i) => (
             <tr
               key={r.symbol}
               className={`row-in${r.symbol === newest ? " row-new" : ""}`}
