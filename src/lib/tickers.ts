@@ -105,7 +105,7 @@ const UNIVERSE: Record<Exclude<SectorKey, "TASE">, string[]> = {
     "TT", "IR", "DOV", "AME", "ROP", "FTV", "XYL", "PNR", "NDSN", "IEX",
     "GGG", "AOS", "LII", "WAB", "J", "PWR", "EME", "ACM", "JBHT", "ODFL",
     "CHRW", "EXPD", "LUV", "DAL", "UAL", "AAL", "ALK", "AXON", "TDG",
-    "HWM", "HEI", "TXT", "LHX", "HII", "VRSK", "RSG", "WM", "ROL", "CTAS",
+    "HWM", "HEI", "TXT", "LHX", "HII", "VRSK", "RSG", "WM", "ROL", "CTAS", "AA",
     "PAYX", "ADP", "EFX",
   ],
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchStock, fetchFullEnrich } from "@/lib/fetcher";
 import { applyScores, generateInsight, isValuePlay } from "@/lib/scoring";
 import { getStock, putStock } from "@/lib/stockCache";
+import { getSector } from "@/lib/tickers";
 import type { ScanWeights, StockRow } from "@/lib/types";
 
 // A row counts as "fully enriched" only when it actually carries detail data.
@@ -33,6 +34,7 @@ export async function GET(
 
   // Cache hit with real enriched detail — return immediately.
   const cached = getStock(sym);
+  if (cached && !cached.sector) cached.sector = getSector(sym);
   if (cached && isEnriched(cached)) return NextResponse.json(cached);
 
   // Cached scan row without detail (or a poisoned empty enrich) — enrich now.
@@ -69,6 +71,12 @@ export async function GET(
   ]);
 
   if (row.error) return NextResponse.json(row);
+
+  // yfinance often returns an empty sector for on-demand lookups (same gap
+  // the scan route backfills). Without this, an analyzed ticker outside the
+  // scanned universe (e.g. typed into "Analyze any ticker") shows a blank
+  // sector chip instead of a real one.
+  if (!row.sector) row.sector = getSector(sym);
 
   let scored = applyScores(row, weights);
   scored.insight      = generateInsight(scored);
