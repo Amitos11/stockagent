@@ -2,7 +2,7 @@
 
 import type { StockRow, EarningsHistory } from "@/lib/types";
 import { fmtPrice, fmtPct } from "@/lib/formatters";
-import { WatchStar, SectorChip, ScorePill, ScoreBar, DayChange, TrendArrow, RiskBadge, HealthDot } from "./primitives";
+import { WatchStar, SectorChip, ScorePill, ScoreBar, DayChange, TrendArrow, RiskBadge, HealthDot, CompanyLogo } from "./primitives";
 
 /** Beat / missed last quarter's EPS estimate. undefined = not loaded yet. */
 function EarningsMark({ e }: { e?: EarningsHistory }) {
@@ -78,8 +78,11 @@ export function ResultsTable({ rows, onSelect, scanning, newest, watchlist, onTo
               <td className="num-col rank num">{String(i + 1).padStart(2, "0")}</td>
               <td>
                 <span className="sym-cell">
-                  <span className="sym num">{r.symbol}</span>
-                  <span className="sym-name">{r.name}</span>
+                  <CompanyLogo symbol={r.symbol} sector={r.sector} />
+                  <span className="sym-cell-text">
+                    <span className="sym num">{r.symbol}</span>
+                    <span className="sym-name">{r.name}</span>
+                  </span>
                 </span>
               </td>
               <td><SectorChip sector={r.sector} /></td>

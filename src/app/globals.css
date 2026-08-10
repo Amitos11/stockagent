@@ -232,9 +232,12 @@ input[type="range"]::-moz-range-thumb { width: 17px; height: 17px; border: none;
 .results-table tbody tr:focus-visible { outline: 2px solid rgba(129,140,248,.6); outline-offset: -2px; }
 .results-table tbody tr:last-child td { border-bottom: none; }
 .rank { color: var(--faint); font-size: 12px; }
-.sym-cell { display: flex; flex-direction: column; gap: 2px; }
+.sym-cell { display: flex; align-items: center; gap: 10px; }
+.sym-cell-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .sym { font-weight: 600; font-size: 13.5px; }
-.sym-name { font-size: 11.5px; color: var(--muted); }
+.sym-name { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.company-logo { width: 26px; height: 26px; border-radius: 8px; object-fit: contain; background: rgba(255,255,255,.06); padding: 3px; flex-shrink: 0; }
+.company-logo-fallback { display: inline-grid; place-items: center; border-radius: 8px; border: 1px solid; font-family: var(--font-num); font-weight: 700; font-size: 12px; flex-shrink: 0; }
 .sector-chip { display: inline-block; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 500; border: 1px solid; }
 .score-cell { display: flex; align-items: center; gap: 12px; }
 .score-pill { display: inline-grid; place-items: center; min-width: 38px; padding: 4px 8px; border-radius: 9px; font-family: var(--font-num); font-weight: 600; font-size: 13px; }
@@ -320,6 +323,9 @@ input[type="range"]::-moz-range-thumb { width: 17px; height: 17px; border: none;
 .drawer-root.open .drawer-scrim { opacity: 1; }
 .drawer-root.open .drawer { transform: none; }
 .drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
+.drawer-head-id { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.drawer-head-id .company-logo, .drawer-head-id .company-logo-fallback { border-radius: 11px; margin-top: 2px; }
+.drawer-head-id .company-logo-fallback { font-size: 16px; }
 .drawer-head-actions { display: flex; align-items: center; gap: 8px; }
 .drawer-sym-row { display: flex; align-items: center; gap: 10px; }
 .drawer-sym { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }

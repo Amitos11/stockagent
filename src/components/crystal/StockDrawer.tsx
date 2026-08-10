@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import type { StockRow, ScanWeights, CandleData } from "@/lib/types";
 import { riskFlags, readSynthesis, aiInsightTemplate } from "@/lib/signals";
 import { fmtPrice, fmtPct } from "@/lib/formatters";
-import { SectorChip, ScorePill, DayChange, WatchStar, RiskBadge, HealthDot } from "./primitives";
+import { SectorChip, ScorePill, DayChange, WatchStar, RiskBadge, HealthDot, CompanyLogo } from "./primitives";
 
 function fmtPE(v?: number | null) { return v && v > 0 ? v.toFixed(1) : "—"; }
 function fmtCap(mc?: number | null) {
@@ -325,13 +325,16 @@ export function StockDrawer({ stock, weights, sectorPEMap, onClose, watched, onT
       <div className="drawer-scrim" onClick={close} aria-hidden="true" />
       <aside className="drawer glass depth-3" role="dialog" aria-label={`${stock.name ?? stock.symbol} details`}>
         <header className="drawer-head">
-          <div>
-            <div className="drawer-sym-row">
-              <h2 className="drawer-sym num">{stock.symbol}</h2>
-              <SectorChip sector={stock.sector} />
-              {stock.isValuePlay ? <span className="value-flag">VALUE</span> : null}
+          <div className="drawer-head-id">
+            <CompanyLogo symbol={stock.symbol} sector={stock.sector} size={40} />
+            <div>
+              <div className="drawer-sym-row">
+                <h2 className="drawer-sym num">{stock.symbol}</h2>
+                <SectorChip sector={stock.sector} />
+                {stock.isValuePlay ? <span className="value-flag">VALUE</span> : null}
+              </div>
+              <p className="drawer-name">{stock.name}</p>
             </div>
-            <p className="drawer-name">{stock.name}</p>
           </div>
           <div className="drawer-head-actions">
             <WatchStar on={watched} onToggle={onToggleWatch} size={17} />
