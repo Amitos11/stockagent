@@ -48,6 +48,35 @@ export function TiltCard({ children, className = "", style, disabled, onClick }:
   );
 }
 
+/* ── Company logo (FMP image-stock, no API key needed) ───────────────────── */
+export function CompanyLogo({ symbol, sector, size = 26 }: { symbol: string; sector?: string; size?: number }) {
+  const [failed, setFailed] = useState(false);
+  const c = SECTOR_COLORS[sector ?? ""] ?? "#94a3b8";
+
+  if (failed) {
+    return (
+      <span
+        className="company-logo-fallback"
+        style={{ width: size, height: size, color: c, background: c + "18", borderColor: c + "30" }}
+        aria-hidden="true"
+      >
+        {symbol.charAt(0)}
+      </span>
+    );
+  }
+  return (
+    <img
+      className="company-logo"
+      src={`https://financialmodelingprep.com/image-stock/${symbol}.png`}
+      alt=""
+      width={size}
+      height={size}
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 /* ── Sector chip ─────────────────────────────────────────────────────────── */
 export function SectorChip({ sector }: { sector?: string }) {
   const c = SECTOR_COLORS[sector ?? ""] ?? "#94a3b8";
