@@ -14,13 +14,12 @@ export type SectorKey =
   | "Energy"
   | "Industrial"
   | "Israel"
-  | "TASE"
-  | "OTC";
+  | "TASE";
 
 // ── Sector-grouped universe (US + Israeli NASDAQ) ───────────────────────────────
 // First sector a symbol appears in wins (dedup is handled in the derivation step).
 
-const UNIVERSE: Record<Exclude<SectorKey, "TASE" | "OTC">, string[]> = {
+const UNIVERSE: Record<Exclude<SectorKey, "TASE">, string[]> = {
   // Mega-cap tech, communication services, media & networking hardware
   Tech: [
     "AAPL", "MSFT", "GOOGL", "GOOG", "META", "AMZN", "TSLA", "NFLX",
@@ -124,31 +123,19 @@ export const TASE_TICKERS = [
   "ESLT.TA", "NICE.TA", "TEVA.TA", "NVMI.TA", "CAMT.TA",
 ] as const;
 
-// Curated OTC/pink-sheet ADRs — major global blue-chips whose ONLY US listing
-// is over-the-counter (no NYSE/NASDAQ ADR). Deliberately NOT the full OTC
-// market (~12,000 tickers, mostly shells/penny stocks with unreliable data) —
-// a hand-picked, liquid, well-covered set. Kept out of ALL_TICKERS/TICKERS so
-// a regular scan never grows to include them; only a market=OTC scan does.
-export const OTC_TICKERS = [
-  "NSRGY", "VWAGY", "TCEHY", "RHHBY", "BASFY", "LVMUY", "SIEGY", "ALIZY",
-  "ADDYY", "DANOY", "BAYRY", "SFTBY", "SSNLF", "RYCEY", "LRLCY", "VLVLY",
-  "HEINY", "BMWKY", "MBGYY", "DTEGY", "AXAHY", "MURGY", "NTDOY", "HTHIY",
-  "PCRHY",
-] as const;
-
 // ── Derivation — dedup, first-sector-wins ───────────────────────────────────────
 
 export const SECTOR_ORDER: SectorKey[] = [
   "Tech", "Semis", "Software", "Healthcare",
   "Consumer", "Finance", "Energy", "Industrial",
-  "Israel", "TASE", "OTC",
+  "Israel", "TASE",
 ];
 
 const _sectorMap: Record<string, SectorKey> = {};
 const _usSymbols: string[] = [];
 
 for (const sector of SECTOR_ORDER) {
-  if (sector === "TASE" || sector === "OTC") continue;
+  if (sector === "TASE") continue;
   for (const sym of UNIVERSE[sector]) {
     if (sym in _sectorMap) continue; // dedup — first sector wins
     _sectorMap[sym] = sector;
@@ -158,12 +145,6 @@ for (const sector of SECTOR_ORDER) {
 for (const sym of TASE_TICKERS) {
   if (sym in _sectorMap) continue;
   _sectorMap[sym] = "TASE";
-}
-// OTC tickers get a sector tag too (for the chip/colors), but are deliberately
-// kept out of _usSymbols so they never bleed into the regular scan universe.
-for (const sym of OTC_TICKERS) {
-  if (sym in _sectorMap) continue;
-  _sectorMap[sym] = "OTC";
 }
 
 /** All US/NASDAQ-listed symbols (excludes ".TA"). */
@@ -192,7 +173,7 @@ export interface SectorMeta {
   label: string;
   cssClass: string;
   color: string;
-  market: "US" | "IL" | "OTC";
+  market: "US" | "IL";
 }
 
 export const SECTOR_META: Record<SectorKey, SectorMeta> = {
@@ -206,7 +187,6 @@ export const SECTOR_META: Record<SectorKey, SectorMeta> = {
   Industrial: { label: "Industrials",    cssClass: "sector-industrial", color: "#94a3b8", market: "US" },
   Israel:     { label: "Israel NASDAQ",  cssClass: "sector-israel",     color: "#60a5fa", market: "IL" },
   TASE:       { label: "TASE",           cssClass: "sector-tase",       color: "#34d399", market: "IL" },
-  OTC:        { label: "OTC / ADR",      cssClass: "sector-otc",        color: "#c084fc", market: "OTC" },
 };
 
 export const BUFFETT_QUOTES = [

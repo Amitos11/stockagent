@@ -7,7 +7,7 @@ import { NextRequest } from "next/server";
 import { spawn } from "child_process";
 import { join } from "path";
 import { readFileSync, writeFileSync, existsSync } from "fs";
-import { ALL_TICKERS, ISRAELI_TICKERS, OTC_TICKERS, getSector } from "@/lib/tickers";
+import { ALL_TICKERS, ISRAELI_TICKERS, getSector } from "@/lib/tickers";
 import { hasMinData, applyScores, generateInsight, isValuePlay } from "@/lib/scoring";
 import { putStock } from "@/lib/stockCache";
 import type { ScanWeights, StockRow, ScanResult } from "@/lib/types";
@@ -19,9 +19,7 @@ const CACHE_FILE   = join(process.cwd(), ".scan-cache.json");
 const CACHE_TTL_MS = 120 * 60 * 1000; // 2 hours — first scan ~90s, then instant
 const memCache     = new Map<string, CacheEntry>();
 
-function cacheKey(w: ScanWeights, limit: number, market: string) {
-  return `${w.growth}:${w.profitability}:${w.valuation}@${limit}:${market}`;
-}
+function cacheKey(w: ScanWeights, limit: number) { return `${w.growth}:${w.profitability}:${w.valuation}@${limit}`; }
 
 function loadCache() {
   try {
@@ -81,21 +79,14 @@ export async function GET(req: NextRequest) {
     valuation:     Number(sp.get("valuation")     ?? 34),
   };
 
-  // Separate market: a distinct, opt-in scan of curated OTC/pink-sheet ADRs.
-  // It never gets folded into the regular scan — selecting it fetches ONLY
-  // the OTC list, so the default US+Israel scan never grows or slows down.
-  const market = (sp.get("market") ?? "").toUpperCase();
-  const isOtc = market === "OTC";
-  const universeSize = isOtc ? OTC_TICKERS.length : ALL_TICKERS.length;
-
   // How many tickers to scan. Larger = slower but broader coverage.
-  // Clamp to [1, universe size]; default to the full universe.
+  // Clamp to [1, full universe]; default to the full universe.
   const rawLimit = Number(sp.get("limit"));
   const limit = Number.isFinite(rawLimit) && rawLimit > 0
-    ? Math.min(Math.floor(rawLimit), universeSize)
-    : universeSize;
+    ? Math.min(Math.floor(rawLimit), ALL_TICKERS.length)
+    : ALL_TICKERS.length;
 
-  const key = cacheKey(weights, limit, isOtc ? "OTC" : "US");
+  const key = cacheKey(weights, limit);
   const cached = memCache.get(key);
   if (cached && cached.expiresAt > Date.now()) {
     const body = sseEvent("complete", cached.result as unknown as Record<string, unknown>);
@@ -108,13 +99,12 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const SCRIPT = join(process.cwd(), "src", "scripts", "yf_fetch.py");
-  const allSymbols = isOtc
-    ? Array.from(OTC_TICKERS).slice(0, limit)
-    // Take the first `limit`, then always union in the Israeli stocks — they
-    // live at the tail of the universe, so a 500-scan would otherwise drop
-    // the whole TASE block (and some Israel-NASDAQ names).
-    : Array.from(new Set([...Array.from(ALL_TICKERS).slice(0, limit), ...ISRAELI_TICKERS]));
+  const SCRIPT     = join(process.cwd(), "src", "scripts", "yf_fetch.py");
+  // Take the first `limit`, then always union in the Israeli stocks — they live
+  // at the tail of the universe, so a 500-scan would otherwise drop the whole
+  // TASE block (and some Israel-NASDAQ names).
+  const base = Array.from(ALL_TICKERS).slice(0, limit);
+  const allSymbols = Array.from(new Set([...base, ...ISRAELI_TICKERS]));
 
   const stream = new ReadableStream({
     start(controller) {

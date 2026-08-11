@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo, useEffect } from "react";
 import type { StockRow, ScanWeights, EarningsHistory } from "@/lib/types";
 import { computeWeightedScore, isValuePlay } from "@/lib/scoring";
 import { buildSectorPEMap } from "@/lib/signals";
-import { ALL_TICKERS, OTC_TICKERS, BUFFETT_QUOTES } from "@/lib/tickers";
+import { ALL_TICKERS, BUFFETT_QUOTES } from "@/lib/tickers";
 
 import { Hero }            from "@/components/crystal/Hero";
 import { TopNav }          from "@/components/crystal/TopNav";
@@ -80,22 +80,10 @@ export default function DashboardPage() {
     });
   }, []);
 
-  // Switching into/out of the OTC market is a genuinely different fetch (a
-  // separate, curated ticker list — not folded into the regular scan), so
-  // stale results from the other mode shouldn't linger on screen.
-  const handleSetMarket = useCallback((v: string) => {
-    if ((marketFilter === "OTC") !== (v === "OTC")) {
-      setPartialRows([]);
-      setProgress(0);
-    }
-    setMarketFilter(v);
-  }, [marketFilter]);
-
   const totalTickers = useMemo(() => {
-    if (marketFilter === "OTC") return OTC_TICKERS.length;
     const limit = scanSize === "All" ? ALL_TICKERS.length : Number(scanSize);
     return Math.min(ALL_TICKERS.length, limit);
-  }, [scanSize, marketFilter]);
+  }, [scanSize]);
 
   const runScan = useCallback(async () => {
     if (scanning) return;
@@ -104,15 +92,11 @@ export default function DashboardPage() {
     setProgress(0);
     setHeroCollapsed(true);
 
-    const isOtc = marketFilter === "OTC";
     const params = new URLSearchParams({
       growth:        String(weights.growth),
       profitability: String(weights.profitability),
       valuation:     String(weights.valuation),
-      // The OTC list is small and curated — always scan all of it, ignoring
-      // the US-scan size dial (100/250/500/All doesn't map meaningfully here).
-      limit:         isOtc || scanSize === "All" ? "9999" : String(scanSize),
-      ...(isOtc ? { market: "OTC" } : {}),
+      limit:         scanSize === "All" ? "9999" : String(scanSize),
     });
 
     const es = new EventSource(`/api/scan/stream?${params}`);
@@ -195,10 +179,7 @@ export default function DashboardPage() {
 
   const filteredRows = useMemo(() => {
     let rows = liveRows;
-    // "All" and "OTC" both show everything currently loaded as-is: for OTC,
-    // the scan itself already fetched an OTC-only symbol set (no .TA suffix),
-    // so the US/IL suffix filter below would wrongly exclude every row.
-    if (marketFilter === "US" || marketFilter === "IL") {
+    if (marketFilter !== "All") {
       rows = rows.filter((r) =>
         marketFilter === "US" ? !r.symbol.endsWith(".TA") : r.symbol.endsWith(".TA")
       );
@@ -280,7 +261,7 @@ export default function DashboardPage() {
 
       <TopNav
         market={marketFilter}
-        setMarket={handleSetMarket}
+        setMarket={setMarketFilter}
         scanSize={scanSize}
         setScanSize={setScanSize}
         onRunScan={runScan}
@@ -332,9 +313,7 @@ export default function DashboardPage() {
           </>
         ) : (
           <div className="empty-state glass depth-1">
-            <p className="empty-hint">
-              Click <strong>Run Scan</strong> to scan {marketFilter === "OTC" ? OTC_TICKERS.length : `up to ${ALL_TICKERS.length}`} {marketFilter === "OTC" ? "OTC / ADR" : ""} stocks
-            </p>
+            <p className="empty-hint">Click <strong>Run Scan</strong> to scan up to {ALL_TICKERS.length} stocks</p>
           </div>
         )}
       </main>
