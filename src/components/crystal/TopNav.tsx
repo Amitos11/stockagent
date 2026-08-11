@@ -29,30 +29,27 @@ export function TopNav({
 
         <nav className="nav-controls" aria-label="Scan controls">
           <div className="seg" role="group" aria-label="Market filter">
-            {(["All", "US", "IL", "OTC"] as const).map((v) => (
+            {(["All", "US", "IL"] as const).map((v) => (
               <button
                 key={v}
                 className={`seg-btn${market === v ? " on" : ""}`}
                 onClick={() => setMarket(v)}
-                title={v === "OTC" ? "Curated OTC / ADR blue-chips — a separate scan, not folded into the regular one" : undefined}
               >
-                {v === "All" ? "All" : v === "US" ? "🇺🇸 US" : v === "IL" ? "🇮🇱 Israel" : "OTC"}
+                {v === "All" ? "All" : v === "US" ? "🇺🇸 US" : "🇮🇱 Israel"}
               </button>
             ))}
           </div>
-          {market !== "OTC" && (
-            <div className="seg" role="group" aria-label="Scan size">
-              {([100, 250, 500, "All"] as const).map((v) => (
-                <button
-                  key={v}
-                  className={`seg-btn${scanSize === v ? " on" : ""}`}
-                  onClick={() => setScanSize(v)}
-                >
-                  {v}
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="seg" role="group" aria-label="Scan size">
+            {([100, 250, 500, "All"] as const).map((v) => (
+              <button
+                key={v}
+                className={`seg-btn${scanSize === v ? " on" : ""}`}
+                onClick={() => setScanSize(v)}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
           <button className="ghost-btn" disabled={!resultsCount} onClick={onExportCsv}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />

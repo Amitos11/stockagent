@@ -14,13 +14,12 @@ export type SectorKey =
   | "Energy"
   | "Industrial"
   | "Israel"
-  | "TASE"
-  | "OTC";
+  | "TASE";
 
 // ── Sector-grouped universe (US + Israeli NASDAQ) ───────────────────────────────
 // First sector a symbol appears in wins (dedup is handled in the derivation step).
 
-const UNIVERSE: Record<Exclude<SectorKey, "TASE" | "OTC">, string[]> = {
+const UNIVERSE: Record<Exclude<SectorKey, "TASE">, string[]> = {
   // Mega-cap tech, communication services, media & networking hardware
   Tech: [
     "AAPL", "MSFT", "GOOGL", "GOOG", "META", "AMZN", "TSLA", "NFLX",
@@ -124,42 +123,19 @@ export const TASE_TICKERS = [
   "ESLT.TA", "NICE.TA", "TEVA.TA", "NVMI.TA", "CAMT.TA",
 ] as const;
 
-// Curated OTC/pink-sheet ADRs — major global blue-chips whose ONLY US listing
-// is over-the-counter (no NYSE/NASDAQ ADR). Deliberately NOT the full OTC
-// market (~12,000 tickers, mostly shells/penny stocks with unreliable data) —
-// a hand-picked, liquid, well-covered set. Kept out of ALL_TICKERS/TICKERS so
-// a regular scan never grows to include them; only a market=OTC scan does.
-//
-// v2 (2026-08-11): re-filtered to a real quality bar — every symbol here
-// scored 38+ on this app's own growth/profitability/valuation engine when
-// verified live (dropped MURGY — not tradeable at the reporting broker — and
-// every ticker that scored poorly on fundamentals: BAYRY 4.7, PCRHY 6.0,
-// PPRUY 1.4, DSDVY 23, HTHIY 23.6, CFRUY 24, AIQUY 26, DANOY 28, SBGSY 30,
-// HEINY 31, LRLCY 30, KHNGY 32, RYCEY 32, ENLAY 35, NTDOY 34, NSRGY 37,
-// LVMUY 36, SIEGY 36). The threshold is the app's own objective score, not a
-// hand-picked "hot stocks" list.
-// v3 (2026-08-11): dropped RBGLY, AMADY, FSNUY, DBOEY, WTKWY, EXPGY, VCISY,
-// NRDBY, PUBGY — good scores, but not tradeable at the reporting broker
-// (Leumi Trade). Broker availability trumps score for this list's purpose.
-export const OTC_TICKERS = [
-  "ALIZY", "SSNLF", "TCEHY", "SFTBY", "AXAHY", "BASFY", "VLVLY", "RHHBY",
-  "DTEGY", "ADDYY", "MBGYY", "BMWKY", "VWAGY",
-  "PROSY", "IBDRY", "ASAZY", "ATLKY", "NVZMY", "KNYJY",
-] as const;
-
 // ── Derivation — dedup, first-sector-wins ───────────────────────────────────────
 
 export const SECTOR_ORDER: SectorKey[] = [
   "Tech", "Semis", "Software", "Healthcare",
   "Consumer", "Finance", "Energy", "Industrial",
-  "Israel", "TASE", "OTC",
+  "Israel", "TASE",
 ];
 
 const _sectorMap: Record<string, SectorKey> = {};
 const _usSymbols: string[] = [];
 
 for (const sector of SECTOR_ORDER) {
-  if (sector === "TASE" || sector === "OTC") continue;
+  if (sector === "TASE") continue;
   for (const sym of UNIVERSE[sector]) {
     if (sym in _sectorMap) continue; // dedup — first sector wins
     _sectorMap[sym] = sector;
@@ -169,12 +145,6 @@ for (const sector of SECTOR_ORDER) {
 for (const sym of TASE_TICKERS) {
   if (sym in _sectorMap) continue;
   _sectorMap[sym] = "TASE";
-}
-// OTC tickers get a sector tag too (for the chip/colors), but are deliberately
-// kept out of _usSymbols so they never bleed into the regular scan universe.
-for (const sym of OTC_TICKERS) {
-  if (sym in _sectorMap) continue;
-  _sectorMap[sym] = "OTC";
 }
 
 /** All US/NASDAQ-listed symbols (excludes ".TA"). */
@@ -203,7 +173,7 @@ export interface SectorMeta {
   label: string;
   cssClass: string;
   color: string;
-  market: "US" | "IL" | "OTC";
+  market: "US" | "IL";
 }
 
 export const SECTOR_META: Record<SectorKey, SectorMeta> = {
@@ -217,7 +187,6 @@ export const SECTOR_META: Record<SectorKey, SectorMeta> = {
   Industrial: { label: "Industrials",    cssClass: "sector-industrial", color: "#94a3b8", market: "US" },
   Israel:     { label: "Israel NASDAQ",  cssClass: "sector-israel",     color: "#60a5fa", market: "IL" },
   TASE:       { label: "TASE",           cssClass: "sector-tase",       color: "#34d399", market: "IL" },
-  OTC:        { label: "OTC / ADR",      cssClass: "sector-otc",        color: "#c084fc", market: "OTC" },
 };
 
 export const BUFFETT_QUOTES = [
