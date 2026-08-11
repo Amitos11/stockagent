@@ -138,13 +138,13 @@ export const TASE_TICKERS = [
 // HEINY 31, LRLCY 30, KHNGY 32, RYCEY 32, ENLAY 35, NTDOY 34, NSRGY 37,
 // LVMUY 36, SIEGY 36). The threshold is the app's own objective score, not a
 // hand-picked "hot stocks" list.
+// v3 (2026-08-11): dropped RBGLY, AMADY, FSNUY, DBOEY, WTKWY, EXPGY, VCISY,
+// NRDBY, PUBGY — good scores, but not tradeable at the reporting broker
+// (Leumi Trade). Broker availability trumps score for this list's purpose.
 export const OTC_TICKERS = [
-  // Carried over — scored 38+ (verified live)
   "ALIZY", "SSNLF", "TCEHY", "SFTBY", "AXAHY", "BASFY", "VLVLY", "RHHBY",
   "DTEGY", "ADDYY", "MBGYY", "BMWKY", "VWAGY",
-  // Added — new candidates, also scored 38+ (verified live)
-  "PROSY", "RBGLY", "AMADY", "IBDRY", "FSNUY", "DBOEY", "ASAZY", "WTKWY",
-  "EXPGY", "VCISY", "NRDBY", "ATLKY", "PUBGY", "NVZMY", "KNYJY",
+  "PROSY", "IBDRY", "ASAZY", "ATLKY", "NVZMY", "KNYJY",
 ] as const;
 
 // ── Derivation — dedup, first-sector-wins ───────────────────────────────────────
