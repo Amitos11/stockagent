@@ -12,6 +12,7 @@ export const SECTOR_COLORS: Record<string, string> = {
   Industrial: "#94a3b8",
   Israel: "#60a5fa",
   TASE: "#34d399",
+  OTC: "#c084fc",
 };
 
 export function scoreColor(score: number): string {
