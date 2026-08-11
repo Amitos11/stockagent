@@ -129,11 +129,22 @@ export const TASE_TICKERS = [
 // market (~12,000 tickers, mostly shells/penny stocks with unreliable data) —
 // a hand-picked, liquid, well-covered set. Kept out of ALL_TICKERS/TICKERS so
 // a regular scan never grows to include them; only a market=OTC scan does.
+//
+// v2 (2026-08-11): re-filtered to a real quality bar — every symbol here
+// scored 38+ on this app's own growth/profitability/valuation engine when
+// verified live (dropped MURGY — not tradeable at the reporting broker — and
+// every ticker that scored poorly on fundamentals: BAYRY 4.7, PCRHY 6.0,
+// PPRUY 1.4, DSDVY 23, HTHIY 23.6, CFRUY 24, AIQUY 26, DANOY 28, SBGSY 30,
+// HEINY 31, LRLCY 30, KHNGY 32, RYCEY 32, ENLAY 35, NTDOY 34, NSRGY 37,
+// LVMUY 36, SIEGY 36). The threshold is the app's own objective score, not a
+// hand-picked "hot stocks" list.
 export const OTC_TICKERS = [
-  "NSRGY", "VWAGY", "TCEHY", "RHHBY", "BASFY", "LVMUY", "SIEGY", "ALIZY",
-  "ADDYY", "DANOY", "BAYRY", "SFTBY", "SSNLF", "RYCEY", "LRLCY", "VLVLY",
-  "HEINY", "BMWKY", "MBGYY", "DTEGY", "AXAHY", "MURGY", "NTDOY", "HTHIY",
-  "PCRHY",
+  // Carried over — scored 38+ (verified live)
+  "ALIZY", "SSNLF", "TCEHY", "SFTBY", "AXAHY", "BASFY", "VLVLY", "RHHBY",
+  "DTEGY", "ADDYY", "MBGYY", "BMWKY", "VWAGY",
+  // Added — new candidates, also scored 38+ (verified live)
+  "PROSY", "RBGLY", "AMADY", "IBDRY", "FSNUY", "DBOEY", "ASAZY", "WTKWY",
+  "EXPGY", "VCISY", "NRDBY", "ATLKY", "PUBGY", "NVZMY", "KNYJY",
 ] as const;
 
 // ── Derivation — dedup, first-sector-wins ───────────────────────────────────────
