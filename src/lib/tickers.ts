@@ -160,6 +160,10 @@ export const TASE_TICKERS = [
   // Technology: AudioCodes, Elron Ventures, Perion Network, Allot
   "GCT.TA", "PTBL.TA", "DISI.TA",
   // Real Estate: G City, Property & Building, Discount Investment Corp
+  "THES.TA",
+  // Defense/Technology: ThirdEye Systems (עין שלישית מערכות) — added after
+  // user follow-up; initially skipped as a small-cap but verified live
+  // (exact agorot-price match) and worth including for a defense-tech name.
 ] as const;
 
 // ── Derivation — dedup, first-sector-wins ───────────────────────────────────────
