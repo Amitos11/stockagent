@@ -143,6 +143,23 @@ export const TASE_TICKERS = [
   "RATI.TA", "RIT1.TA", "RLCO.TA", "SAE.TA", "SKBN.TA",
   "SMT.TA", "SPEN.TA", "STRS.TA", "TASE.TA", "TMRP.TA",
   "TSEM.TA",
+
+  // Added 2026-08-11 from 4 TASE sector indices not fully covered by TA-125:
+  // Insurance (ת"א ביטוח), Defense/Security (ת"א ביטחוניות),
+  // Technology (ת"א טכנולוגיה), Real Estate (ת"א נדל"ן) — source: Globes'
+  // live "הרכב מדד" composition pages, cross-referenced against the existing
+  // 86-symbol list above to exclude duplicates, then verified live against
+  // Yahoo's chart API (exact agorot-price match to the Globes snapshot)
+  // before being added. See PR description for the full candidate list,
+  // including names that were checked but left out (dupes, no resolvable
+  // Yahoo ticker, or illiquid micro-caps).
+  "WESR.TA", "LBRA.TA",       // Insurance: Wesure Global Tech, Libra Insurance
+  "TSG.TA", "CMER.TA", "NXSN.TA", "PCBT.TA", "TATT.TA",
+  // Defense: TSG IT Advanced Systems, Mer Group, NextVision, PCB Technologies, TAT Technologies
+  "AUDC.TA", "ELRN.TA", "PERI.TA", "ALLT.TA",
+  // Technology: AudioCodes, Elron Ventures, Perion Network, Allot
+  "GCT.TA", "PTBL.TA", "DISI.TA",
+  // Real Estate: G City, Property & Building, Discount Investment Corp
 ] as const;
 
 // ── Derivation — dedup, first-sector-wins ───────────────────────────────────────
