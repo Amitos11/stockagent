@@ -116,11 +116,33 @@ const UNIVERSE: Record<Exclude<SectorKey, "TASE">, string[]> = {
   ],
 };
 
-// Tel Aviv Stock Exchange (".TA" suffix — handled separately by the data layer)
+// Tel Aviv Stock Exchange (".TA" suffix — handled separately by the data layer).
+// Expanded 2026-08-11 from the official TA-125 index composition (source:
+// Globes' live "הרכב מדד" table, cross-checked against the Israeli market's
+// own quoted prices) — every added symbol below was verified live against
+// both Yahoo's price feed AND this app's own scoring pipeline (real name,
+// price, fundamentals, score) before being added. A handful of TA-125 names
+// couldn't be resolved to a working Yahoo ticker and were left out (Dmri
+// Group, Sella Real Estate, Carasso Motors) rather than guessed.
 export const TASE_TICKERS = [
   "POLI.TA", "LUMI.TA", "DSCT.TA", "MZTF.TA", "FIBI.TA",
   "ICL.TA", "AZRG.TA", "EMMT.TA", "DLEKG.TA", "ORL.TA",
   "ESLT.TA", "NICE.TA", "TEVA.TA", "NVMI.TA", "CAMT.TA",
+  "ACRO.TA", "AFPR.TA", "AFRE.TA", "ALHE.TA", "AMOT.TA",
+  "AMPA.TA", "ARGO.TA", "ARPT.TA", "ARYT.TA", "ASHG.TA",
+  "AURA.TA", "AYAL.TA", "AZRM.TA", "BEZQ.TA", "BIG.TA",
+  "BSEN.TA", "CEL.TA", "CLIS.TA", "DELG.TA", "DNYA.TA",
+  "DORL.TA", "ELAL.TA", "ELCO.TA", "ELCRE.TA", "ELTR.TA",
+  "ENLT.TA", "ENOG.TA", "ENRG.TA", "EQTL.TA", "FORTY.TA",
+  "FOX.TA", "FTAL.TA", "GILT.TA", "GVYM.TA", "HARL.TA",
+  "HLAN.TA", "IBI.TA", "IDIN.TA", "ILCO.TA", "INRM.TA",
+  "ISCD.TA", "ISRA.TA", "ISRO.TA", "KEN.TA", "MGDL.TA",
+  "MGOR.TA", "MLSR.TA", "MMHD.TA", "MTAV.TA", "MTRX.TA",
+  "NOFR.TA", "NVPT.TA", "NWMD.TA", "NYAX.TA", "OPCE.TA",
+  "ORA.TA", "PAZ.TA", "PHOE.TA", "PRTC.TA", "PTNR.TA",
+  "RATI.TA", "RIT1.TA", "RLCO.TA", "SAE.TA", "SKBN.TA",
+  "SMT.TA", "SPEN.TA", "STRS.TA", "TASE.TA", "TMRP.TA",
+  "TSEM.TA",
 ] as const;
 
 // ── Derivation — dedup, first-sector-wins ───────────────────────────────────────
